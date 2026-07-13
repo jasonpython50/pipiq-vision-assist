@@ -1,0 +1,785 @@
+# PiPiQ Vision Assist: QR code locator and AI image describer for NVDA.
+# Entry gesture NVDA+Shift+0 opens a one-keystroke command layer; every
+# command is also exposed as a separately bindable script.
+
+import os
+import threading
+import time
+
+import wx
+
+import addonHandler
+import api
+import config
+import globalPluginHandler
+import gui
+import languageHandler
+import tones
+import ui
+import winUser
+from logHandler import log
+from scriptHandler import script
+
+from . import apiClient, qrLogic, screenGrab
+from .knownModels import RECOMMENDED_DESCRIPTION_MODEL, RECOMMENDED_QR_MODEL
+from .settingsPanel import PipiqSettingsPanel
+
+addonHandler.initTranslation()
+
+config.conf.spec["pipiq"] = {
+	"apiKey": "string(default='')",
+	"baseURL": "string(default='%s')" % apiClient.DEFAULT_BASE_URL,
+	"qrModel": "string(default='%s')" % RECOMMENDED_QR_MODEL,
+	"descModel": "string(default='%s')" % RECOMMENDED_DESCRIPTION_MODEL,
+	"detailLevel": "string(default='brief')",
+	"contentMode": "string(default='auto')",
+	"customPrompt": "string(default='')",
+	"timeout": "integer(default=90,min=15,max=300)",
+	"maxImageDim": "integer(default=1568,min=512,max=3072)",
+	"moveMouseToQR": "boolean(default=True)",
+	"resultsPresentation": "string(default='auto')",
+	"progressBeeps": "boolean(default=True)",
+	"respondInUILanguage": "boolean(default=True)",
+	"showOnlyVisionModels": "boolean(default=True)",
+}
+
+LONG_RESULT_CHARS = 450
+
+
+def _conf():
+	return config.conf["pipiq"]
+
+
+def _screenCurtainActive():
+	try:
+		import vision
+		for providerInfo in vision.handler.getActiveProviderInfos():
+			if getattr(providerInfo, "providerId", "") == "screenCurtain":
+				return True
+	except Exception:
+		pass
+	return False
+
+
+class GlobalPlugin(globalPluginHandler.GlobalPlugin):
+	# Translators: name of the addon's category in the Input gestures dialog.
+	scriptCategory = _("PiPiQ Vision Assist")
+
+	def __init__(self):
+		super().__init__()
+		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(PipiqSettingsPanel)
+		self._layerActive = False
+		self._generation = 0  # bumping this invalidates any in-flight request
+		self._inFlight = False
+		self._lastResult = None  # (title, text)
+
+	def terminate(self):
+		self._generation += 1
+		self._inFlight = False
+		try:
+			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(PipiqSettingsPanel)
+		except ValueError:
+			pass
+		super().terminate()
+
+	# ------------------------------------------------------------------
+	# Command layer
+
+	def getScript(self, gesture):
+		if not self._layerActive:
+			return super().getScript(gesture)
+		boundScript = super().getScript(gesture)
+		if boundScript:
+			return boundScript
+		return self.script_layerUnknown
+
+	def _enterLayer(self):
+		self.bindGestures(self.__layerGestures)
+		self._layerActive = True
+		tones.beep(660, 40)
+		# Translators: spoken when the command layer opens. Keep it short; H reads full help.
+		ui.message(_("Vision assist. Press H for help."))
+
+	def _exitLayer(self):
+		if self._layerActive:
+			self._layerActive = False
+			self.clearGestureBindings()
+			self.bindGestures(self.__gestures)
+
+	@script(
+		# Translators: input help for the layer entry command.
+		description=_("Opens the Vision assist layer. Then press Q to find a QR code on the screen, W in the current window, O to describe the navigator object, S the screen, C the clipboard image, G to choose an image on the web page to describe, P to check what a screenshot would capture, T to take a screenshot, R to repeat the last result, B to open it in a window, Escape to cancel."),
+	)
+	def script_visionLayer(self, gesture):
+		if self._layerActive:
+			self._exitLayer()
+			# Translators: spoken when the command layer is closed by pressing the entry key again.
+			ui.message(_("Vision assist closed."))
+			return
+		self._enterLayer()
+
+	_MODIFIER_KEY_NAMES = frozenset((
+		"shift", "leftShift", "rightShift",
+		"control", "leftControl", "rightControl",
+		"alt", "leftAlt", "rightAlt",
+		"windows", "leftWindows", "rightWindows",
+		"NVDA", "capsLock", "insert", "numpadInsert",
+	))
+
+	def script_layerUnknown(self, gesture):
+		# A lone modifier press is dispatched as a gesture too; it must not
+		# knock the user out of the layer.
+		if getattr(gesture, "mainKeyName", "") in self._MODIFIER_KEY_NAMES:
+			return
+		self._exitLayer()
+		tones.beep(330, 60)
+
+	@script(description=_("Speaks the Vision assist layer commands."))
+	def script_layerHelp(self, gesture):
+		self._exitLayer()
+		ui.message(
+			# Translators: full help for the command layer, spoken on H. Does not
+			# name the entry gesture, since the user may have reassigned it.
+			_("Vision assist commands: Q, find QR code on the whole screen. W, find QR code in the current window. O, describe the navigator object. S, describe the whole screen. C, describe the image on the clipboard. G, choose an image on the web page to describe. P, check what a screenshot would capture. T, take a screenshot of the navigator object; Shift plus T, of the current window; Control plus T, of the whole screen. R, repeat the last result. B, show the last result in a browseable window. Escape, cancel. Press the Vision assist gesture again first, then one of these letters."),
+		)
+
+	@script(description=_("Cancels the running Vision assist request."))
+	def script_cancel(self, gesture):
+		self._exitLayer()
+		if self._inFlight:
+			self._cancelInFlight()
+		else:
+			# Translators: spoken when Escape is pressed with nothing to cancel.
+			ui.message(_("Nothing to cancel."))
+
+	# ------------------------------------------------------------------
+	# QR code location
+
+	@script(
+		# Translators: input help for the whole-screen QR command.
+		description=_("Finds a QR code on the whole screen and tells you where to point your phone camera."),
+	)
+	def script_findQRScreen(self, gesture):
+		self._exitLayer()
+		rect = screenGrab.getVirtualScreenRect()
+		# Translators: used in position reports: "...of the screen".
+		self._startQrTask(rect, _("the screen"), reportMonitor=True)
+
+	@script(
+		# Translators: input help for the current-window QR command.
+		description=_("Finds a QR code in the current foreground window and tells you where to point your phone camera."),
+	)
+	def script_findQRWindow(self, gesture):
+		self._exitLayer()
+		rect = self._foregroundRect()
+		if not rect:
+			# Translators: spoken when the foreground window position cannot be determined.
+			ui.message(_("Could not determine the current window's position."))
+			return
+		# Translators: used in position reports: "...of the window".
+		self._startQrTask(rect, _("the window"), reportMonitor=False)
+
+	def _foregroundRect(self):
+		try:
+			location = api.getForegroundObject().location
+			if location and location.width > 0 and location.height > 0:
+				return screenGrab.intersectWithVirtualScreen(
+					location.left, location.top, location.width, location.height,
+				)
+		except Exception:
+			log.error("PiPiQ: failed to get foreground rect", exc_info=True)
+		return None
+
+	def _startQrTask(self, rect, scopeLabel, reportMonitor):
+		if not self._preflight():
+			return
+		try:
+			png, outW, outH, isBlack = screenGrab.captureRect(*rect, maxDim=int(_conf()["maxImageDim"]))
+		except screenGrab.CaptureError:
+			log.error("PiPiQ: screen capture failed", exc_info=True)
+			# Translators: spoken when taking the screenshot fails.
+			ui.message(_("Could not capture the screen."))
+			return
+		if isBlack:
+			ui.message(self._blackCaptureMessage())
+			return
+		conf = _conf()
+		model = conf["qrModel"]
+		prompt = qrLogic.buildQrPrompt()
+		timeout = int(conf["timeout"])
+
+		def work():
+			text = apiClient.chatVision(
+				conf["baseURL"], conf["apiKey"], model, prompt, png,
+				maxTokens=8000, timeout=timeout,
+			)
+			return qrLogic.parseQrResponse(qrLogic.stripReasoning(text), outW, outH)
+
+		def onSuccess(parsed):
+			self._handleQrResult(parsed, rect, scopeLabel, reportMonitor)
+
+		# Translators: spoken while the QR detection request is running.
+		self._runAsync(work, onSuccess, _("Looking for a QR code..."))
+
+	def _handleQrResult(self, parsed, rect, scopeLabel, reportMonitor):
+		if parsed is None:
+			tones.beep(300, 90)
+			# Translators: spoken when the AI reply could not be understood.
+			ui.message(_("The AI response could not be understood. Please try again."))
+			return
+		if not parsed["found"]:
+			# Analysis succeeded with a negative outcome, so the success earcon applies.
+			tones.beep(880, 60)
+			# Translators: spoken when no QR code is visible; {scope} is "the screen" or "the window".
+			ui.message(_("No QR code was found on {scope}. If one should be there, bring it into view and try again.").format(scope=scopeLabel))
+			return
+		codes = parsed["codes"]
+		left, top, width, height = rect
+		l, t, r, b = codes[0]
+		centerX = int(left + (l + r) / 2.0 * width)
+		centerY = int(top + (t + b) / 2.0 * height)
+		monitorPhrase = ""
+		if reportMonitor:
+			index, count = screenGrab.monitorIndexForPoint(centerX, centerY)
+			if count > 1:
+				# Translators: inserted into the QR report on multi-monitor setups; {number} is the monitor number.
+				monitorPhrase = " " + _("on monitor {number}").format(number=index)
+		mouseMoved = False
+		if _conf()["moveMouseToQR"]:
+			try:
+				winUser.setCursorPos(centerX, centerY)
+				mouseMoved = True
+			except Exception:
+				log.error("PiPiQ: could not move mouse", exc_info=True)
+		message = qrLogic.describeQrResult(codes, scopeLabel, monitorPhrase, mouseMoved)
+		# Translators: title of the window showing the last QR result.
+		self._deliverResult(_("QR code location"), message, forceSpeakOnly=True)
+
+	# ------------------------------------------------------------------
+	# Image description
+
+	@script(
+		# Translators: input help for describing the current navigator object.
+		description=_("Describes the image at the navigator object using AI."),
+	)
+	def script_describeNavigator(self, gesture):
+		self._exitLayer()
+		rect = self._navigatorRect()
+		if not rect:
+			# Translators: spoken when the navigator object has no usable screen area.
+			ui.message(_("The current navigator object has no visible area to capture. Try describing the whole screen with S instead."))
+			return
+		# Translators: title of the window showing an object description.
+		self._startDescribeTask(rect, _("Object description"))
+
+	@script(
+		# Translators: input help for describing the whole screen.
+		description=_("Describes the whole screen using AI."),
+	)
+	def script_describeScreen(self, gesture):
+		self._exitLayer()
+		rect = screenGrab.getVirtualScreenRect()
+		# Translators: title of the window showing a screen description.
+		self._startDescribeTask(rect, _("Screen description"))
+
+	@script(
+		# Translators: input help for describing the clipboard image.
+		description=_("Describes the image on the clipboard using AI. Works with copied images and copied image files."),
+	)
+	def script_describeClipboard(self, gesture):
+		self._exitLayer()
+		if not self._preflight(needsScreen=False):
+			return
+		try:
+			result = screenGrab.getClipboardImage(maxDim=int(_conf()["maxImageDim"]))
+		except screenGrab.CaptureError as e:
+			log.error("PiPiQ: clipboard image error: %s" % e)
+			# Translators: spoken when the clipboard holds an image the addon cannot convert.
+			ui.message(_("The clipboard image is in a format that cannot be processed."))
+			return
+		if not result:
+			# Translators: spoken when the clipboard has no image at all.
+			ui.message(_("There is no image on the clipboard. Copy an image or an image file first."))
+			return
+		imageBytes, mime = result
+		# Translators: title of the window showing a clipboard image description.
+		self._sendDescribeRequest(imageBytes, mime, _("Clipboard image description"))
+
+	def _navigatorRect(self):
+		for getter in (api.getNavigatorObject, api.getFocusObject):
+			try:
+				location = getter().location
+			except Exception:
+				location = None
+			if location and location.width > 0 and location.height > 0:
+				rect = screenGrab.intersectWithVirtualScreen(
+					location.left, location.top, location.width, location.height,
+				)
+				if rect:
+					return rect
+		return None
+
+	def _startDescribeTask(self, rect, title):
+		if not self._preflight():
+			return
+		try:
+			png, _w, _h, isBlack = screenGrab.captureRect(*rect, maxDim=int(_conf()["maxImageDim"]))
+		except screenGrab.CaptureError:
+			log.error("PiPiQ: screen capture failed", exc_info=True)
+			ui.message(_("Could not capture the screen."))
+			return
+		if isBlack:
+			ui.message(self._blackCaptureMessage())
+			return
+		self._sendDescribeRequest(png, "image/png", title)
+
+	@staticmethod
+	def _blackCaptureMessage():
+		# Translators: spoken when the screenshot came out entirely black.
+		return _("The captured image is completely black. If NVDA's screen curtain or a privacy filter is active, turn it off and try again.")
+
+	def _sendDescribeRequest(self, imageBytes, mime, title):
+		conf = _conf()
+		language = languageHandler.getLanguage() if conf["respondInUILanguage"] else None
+		prompt = qrLogic.buildDescriptionPrompt(
+			conf["detailLevel"], conf["customPrompt"], language, conf["contentMode"],
+		)
+		model = conf["descModel"]
+		timeout = int(conf["timeout"])
+
+		def work():
+			# A large budget so reasoning models always reach their final
+			# answer; the thinking traces are stripped before presentation.
+			return apiClient.chatVision(
+				conf["baseURL"], conf["apiKey"], model, prompt, imageBytes,
+				mime=mime, maxTokens=8000, timeout=timeout,
+			)
+
+		extractMode = conf["contentMode"] == "extract"
+
+		def onSuccess(text):
+			text = qrLogic.stripReasoning(text)
+			if not text:
+				tones.beep(300, 90)
+				# Translators: spoken when the model reply contained no usable answer.
+				ui.message(_("The model returned an empty answer. Try again, or pick a different model in settings."))
+				return
+			if extractMode:
+				# Exact transcription: the markdown sanitizers would corrupt
+				# literal characters (underscores in emails, number signs,
+				# table pipes) and column spacing, so only trim.
+				self._deliverResult(title, text.strip())
+			else:
+				self._deliverResult(
+					title,
+					qrLogic.sanitizeForSpeech(text),
+					displayText=qrLogic.sanitizeForDisplay(text),
+				)
+
+		# Translators: spoken while an image description request is running.
+		self._runAsync(work, onSuccess, _("Describing the image..."))
+
+	# ------------------------------------------------------------------
+	# Web page images
+
+	@script(
+		# Translators: input help for the web image chooser command.
+		description=_("Lists all images on the current web page so you can choose one to describe with AI."),
+	)
+	def script_listWebImages(self, gesture):
+		self._exitLayer()
+		try:
+			ti = api.getFocusObject().treeInterceptor
+		except Exception:
+			ti = None
+		if not ti or not getattr(ti, "isReady", False) or not hasattr(ti, "_iterNodesByType"):
+			# Translators: spoken when the image list command is used outside a web page.
+			ui.message(_("This command works on web pages and other browse mode documents. Move focus to a web page and try again."))
+			return
+		try:
+			items = list(ti._iterNodesByType("graphic"))
+		except NotImplementedError:
+			items = []
+		except Exception:
+			log.error("PiPiQ: iterating page graphics failed", exc_info=True)
+			items = []
+		if not items:
+			# Translators: spoken when the current page contains no images.
+			ui.message(_("No images were found on this page."))
+			return
+		# The dialog must not open from inside the gesture handler.
+		wx.CallAfter(self._showImageChooser, items)
+
+	def _showImageChooser(self, items):
+		choices = []
+		for i, item in enumerate(items):
+			try:
+				label = (item.label or "").strip()
+			except Exception:
+				label = ""
+			label = " ".join(label.split())
+			if len(label) > 100:
+				label = label[:100] + "…"
+			if not label:
+				# Translators: list entry for an image that has no alternative text.
+				label = _("Unlabeled image")
+			choices.append("%d. %s" % (i + 1, label))
+		gui.mainFrame.prePopup()
+		try:
+			dlg = wx.SingleChoiceDialog(
+				gui.mainFrame,
+				# Translators: prompt of the dialog listing the images on the page.
+				_("Choose the image to describe and press Enter:"),
+				# Translators: title of the dialog listing the images on the page; {count} is how many.
+				_("Images on this page ({count})").format(count=len(items)),
+				choices,
+			)
+			result = dlg.ShowModal()
+			selection = dlg.GetSelection()
+			dlg.Destroy()
+		finally:
+			gui.mainFrame.postPopup()
+		if result != wx.ID_OK or selection < 0:
+			return
+		item = items[selection]
+		try:
+			item.moveTo()  # put the browse mode cursor on the image
+		except Exception:
+			log.error("PiPiQ: could not move to the chosen image", exc_info=True)
+		try:
+			obj = item.textInfo.NVDAObjectAtStart
+		except Exception:
+			obj = None
+		if obj is None:
+			ui.message(_("The chosen image could not be located on screen."))
+			return
+		try:
+			obj.scrollIntoView()
+		except Exception:
+			pass
+		# Give the browser a moment to finish scrolling before measuring where
+		# the image ended up.
+		label = choices[selection].split(". ", 1)[-1]
+		wx.CallLater(700, self._describeChosenImage, obj, label)
+
+	def _describeChosenImage(self, obj, label):
+		try:
+			location = obj.location
+		except Exception:
+			location = None
+		rect = None
+		if location and location.width > 0 and location.height > 0:
+			rect = screenGrab.intersectWithVirtualScreen(
+				location.left, location.top, location.width, location.height,
+			)
+		if not rect:
+			# Translators: spoken when the chosen image could not be scrolled into view.
+			ui.message(_("The image could not be brought into view for capture. Scroll until it is visible, place the navigator on it, and press O instead."))
+			return
+		# Translators: title of the window describing an image chosen from the page list; {name} is its label.
+		self._startDescribeTask(rect, _("Image description: {name}").format(name=label))
+
+	# ------------------------------------------------------------------
+	# Taking screenshots
+
+	@script(
+		# Translators: input help for taking a screenshot of the navigator object.
+		description=_("Takes a screenshot of the navigator object, saves it as a PNG file in your Pictures folder, and copies it to the clipboard."),
+	)
+	def script_screenshotObject(self, gesture):
+		self._exitLayer()
+		rect = self._navigatorRect()
+		if not rect:
+			ui.message(_("The current navigator object has no visible area to capture. Try describing the whole screen with S instead."))
+			return
+		# Translators: names what was captured in the screenshot announcement.
+		self._startScreenshotTask(rect, _("the navigator object"))
+
+	@script(
+		# Translators: input help for taking a screenshot of the current window.
+		description=_("Takes a screenshot of the current foreground window, saves it as a PNG file in your Pictures folder, and copies it to the clipboard."),
+	)
+	def script_screenshotWindow(self, gesture):
+		self._exitLayer()
+		rect = self._foregroundRect()
+		if not rect:
+			ui.message(_("Could not determine the current window's position."))
+			return
+		# Translators: names what was captured in the screenshot announcement.
+		self._startScreenshotTask(rect, _("the current window"))
+
+	@script(
+		# Translators: input help for taking a screenshot of the whole screen.
+		description=_("Takes a screenshot of the whole screen, saves it as a PNG file in your Pictures folder, and copies it to the clipboard."),
+	)
+	def script_screenshotScreen(self, gesture):
+		self._exitLayer()
+		rect = screenGrab.getVirtualScreenRect()
+		# Translators: names what was captured in the screenshot announcement.
+		self._startScreenshotTask(rect, _("the whole screen"))
+
+	def _startScreenshotTask(self, rect, subjectLabel):
+		if self._inFlight:
+			self._cancelInFlight()
+			return
+		if _screenCurtainActive():
+			ui.message(_("Screen curtain is active, so the screen appears black and cannot be captured. Turn off screen curtain and try again."))
+			return
+		try:
+			# Full resolution: screenshots are for people and other apps, so the
+			# AI upload size limit does not apply.
+			rgb, width, height, isBlack = screenGrab.captureRgb(*rect)
+		except screenGrab.CaptureError:
+			log.error("PiPiQ: screenshot capture failed", exc_info=True)
+			ui.message(_("Could not capture the screen."))
+			return
+		if isBlack:
+			ui.message(self._blackCaptureMessage())
+			return
+
+		def work():
+			# PNG encoding of a full-resolution screen takes long enough to
+			# stutter speech, so it runs off the main thread.
+			return screenGrab.saveScreenshot(rgb, width, height)
+
+		def onSuccess(path):
+			copied = True
+			try:
+				screenGrab.copyImageToClipboard(rgb, width, height)
+			except Exception:
+				log.error("PiPiQ: could not copy screenshot to clipboard", exc_info=True)
+				copied = False
+			fileName = os.path.basename(path)
+			if copied:
+				# Translators: screenshot success announcement. {subject} is what was captured,
+				# {file} the file name; the folder is <Pictures>\PiPiQ Screenshots.
+				message = _("Screenshot of {subject} copied to the clipboard and saved as {file} in the PiPiQ Screenshots folder inside your Pictures folder. {width} by {height} pixels.").format(
+					subject=subjectLabel, file=fileName, width=width, height=height,
+				)
+			else:
+				# Translators: screenshot announcement when the clipboard copy failed but the file was saved.
+				message = _("Screenshot of {subject} saved as {file} in the PiPiQ Screenshots folder inside your Pictures folder. {width} by {height} pixels. It could not be copied to the clipboard.").format(
+					subject=subjectLabel, file=fileName, width=width, height=height,
+				)
+			# Translators: title of the window showing the last screenshot report.
+			self._deliverResult(_("Screenshot"), message, forceSpeakOnly=True)
+
+		# Translators: spoken while the screenshot is being saved.
+		self._runAsync(work, onSuccess, _("Taking a screenshot..."))
+
+	# ------------------------------------------------------------------
+	# Capture preview
+
+	@script(
+		# Translators: input help for the capture check command.
+		description=_("Checks what a screenshot or description would capture: reports the navigator object's size and position, whether it is fully on screen, and whether another window is covering it."),
+	)
+	def script_checkCapture(self, gesture):
+		self._exitLayer()
+		try:
+			obj = api.getNavigatorObject()
+			location = obj.location
+			if not location or not location.width or not location.height:
+				obj = api.getFocusObject()
+				location = obj.location
+		except Exception:
+			obj, location = None, None
+		if not obj or not location or not location.width or not location.height:
+			# Translators: spoken when the capture check has nothing to measure.
+			ui.message(_("The current object has no visible area, so O would capture nothing. S still captures the whole screen."))
+			return
+		parts = []
+		name = obj.name or ""
+		try:
+			role = obj.role.displayString
+		except Exception:
+			role = ""
+		# Translators: start of the capture check report; {name} and {role} identify the object.
+		parts.append(_("Pressing O or T would capture: {name}, {role}.").format(name=name or _("unnamed object"), role=role))
+		rect = screenGrab.intersectWithVirtualScreen(location.left, location.top, location.width, location.height)
+		if not rect:
+			# Translators: capture check result when the object is scrolled off screen.
+			parts.append(_("Warning: it is entirely off screen, so the capture would be empty. Scroll it into view first."))
+			# Translators: title of the window showing the last capture check report.
+			self._deliverResult(_("Capture check"), " ".join(parts), forceSpeakOnly=True, playEarcon=False)
+			return
+		visibleLeft, visibleTop, visibleWidth, visibleHeight = rect
+		# Translators: reports the size of the area that would be captured.
+		parts.append(_("Area {width} by {height} pixels.").format(width=location.width, height=location.height))
+		fullArea = location.width * location.height
+		visiblePct = int(round(100.0 * visibleWidth * visibleHeight / fullArea)) if fullArea else 0
+		if visiblePct < 98:
+			# Translators: capture check warning; {percent} is how much of the object is on screen.
+			parts.append(_("Only {percent} percent of it is on screen; scroll it fully into view for a complete capture.").format(percent=visiblePct))
+		blocked, total, covering = screenGrab.occlusionReport(
+			visibleLeft, visibleTop, visibleWidth, visibleHeight,
+			getattr(obj, "windowHandle", None),
+		)
+		if total and blocked == 0:
+			# Translators: capture check result when nothing overlaps the object.
+			parts.append(_("Nothing is covering it."))
+		elif blocked:
+			if covering:
+				# Translators: capture check warning; {count} of {total} checked points are covered by window {title}.
+				parts.append(_("Warning: it is covered at {count} of {total} checked points by the window {title}. Bring your window to the front, for example with Alt plus Tab, then capture.").format(count=blocked, total=total, title=covering))
+			else:
+				parts.append(_("Warning: it is covered at {count} of {total} checked points by another window. Bring your window to the front, then capture.").format(count=blocked, total=total))
+		index, count = screenGrab.monitorIndexForPoint(visibleLeft + visibleWidth // 2, visibleTop + visibleHeight // 2)
+		if count > 1:
+			# Translators: capture check note on multi-monitor setups.
+			parts.append(_("It is on monitor {number}.").format(number=index))
+		try:
+			foregroundName = api.getForegroundObject().name or ""
+		except Exception:
+			foregroundName = ""
+		if foregroundName:
+			# Translators: end of the capture check report; {window} is the active window's title.
+			parts.append(_("W would capture the whole {window} window, and S the whole screen.").format(window=foregroundName))
+		# Stored as the last result so R can re-speak this multi-sentence
+		# report and B can open it for line-by-line braille reading.
+		self._deliverResult(_("Capture check"), " ".join(parts), forceSpeakOnly=True, playEarcon=False)
+
+	# ------------------------------------------------------------------
+	# Results
+
+	@script(
+		# Translators: input help for repeating the last result.
+		description=_("Repeats the last Vision assist result."),
+	)
+	def script_repeatLast(self, gesture):
+		self._exitLayer()
+		if not self._lastResult:
+			# Translators: spoken when there is no previous result to repeat.
+			ui.message(_("No result yet."))
+			return
+		ui.message(self._lastResult[1])  # spoken form
+
+	@script(
+		# Translators: input help for opening the last result in a window.
+		description=_("Shows the last Vision assist result in a browseable window."),
+	)
+	def script_showLast(self, gesture):
+		self._exitLayer()
+		if not self._lastResult:
+			ui.message(_("No result yet."))
+			return
+		title, _spoken, displayText = self._lastResult
+		ui.browseableMessage(displayText, title=title)
+
+	def _deliverResult(self, title, spokenText, displayText=None, forceSpeakOnly=False, playEarcon=True):
+		if displayText is None:
+			displayText = spokenText
+		if playEarcon:
+			tones.beep(880, 60)
+		self._lastResult = (title, spokenText, displayText)
+		mode = _conf()["resultsPresentation"]
+		openWindow = not forceSpeakOnly and (
+			mode == "window" or (mode == "auto" and len(spokenText) > LONG_RESULT_CHARS)
+		)
+		if openWindow:
+			# Speaking the full text here would only be cut off by the window
+			# announcing itself; the window has the text, R re-speaks it.
+			# Translators: short spoken lead-in before the results window opens.
+			ui.message(_("Result ready, opening window."))
+			# The user explicitly invoked this command moments ago, so opening
+			# the window is expected, not focus stealing.
+			ui.browseableMessage(displayText, title=title)
+		else:
+			ui.message(spokenText)
+
+	# ------------------------------------------------------------------
+	# Async plumbing
+
+	def _preflight(self, needsScreen=True):
+		"""Common checks before starting a task. Returns False if the task must not start."""
+		if self._inFlight:
+			self._cancelInFlight()
+			return False
+		if not _conf()["apiKey"].strip():
+			# Translators: spoken when a command is used before the API key is configured.
+			ui.message(_("No API key configured. Open NVDA menu, Preferences, Settings, PiPiQ Vision Assist, and enter your OpenCode API key."))
+			return False
+		if needsScreen and _screenCurtainActive():
+			# Translators: spoken when NVDA's screen curtain would make every screenshot black.
+			ui.message(_("Screen curtain is active, so the screen appears black and cannot be analyzed. Turn off screen curtain and try again."))
+			return False
+		return True
+
+	def _cancelInFlight(self):
+		self._generation += 1
+		self._inFlight = False
+		# Translators: spoken when a running request is cancelled.
+		ui.message(_("Request cancelled."))
+
+	def _runAsync(self, work, onSuccess, progressMessage):
+		self._generation += 1
+		generation = self._generation
+		self._inFlight = True
+		ui.message(progressMessage)
+		if _conf()["progressBeeps"]:
+			threading.Thread(target=self._beeper, args=(generation,), daemon=True).start()
+		threading.Thread(target=self._worker, args=(generation, work, onSuccess), daemon=True).start()
+
+	def _beeper(self, generation):
+		time.sleep(1.0)
+		while self._inFlight and self._generation == generation:
+			try:
+				tones.beep(750, 40)
+			except Exception:
+				return
+			time.sleep(1.2)
+
+	def _worker(self, generation, work, onSuccess):
+		try:
+			result = work()
+			error = None
+		except apiClient.ApiError as e:
+			result, error = None, str(e)
+		except Exception as e:
+			log.error("PiPiQ: unexpected task failure", exc_info=True)
+			# Translators: spoken on an unexpected internal error; details go to the NVDA log.
+			result, error = None, _("An unexpected error occurred. See the NVDA log for details.")
+		wx.CallAfter(self._finish, generation, result, error, onSuccess)
+
+	def _finish(self, generation, result, error, onSuccess):
+		if generation != self._generation:
+			return  # cancelled or superseded; stay silent
+		self._inFlight = False
+		if error is not None:
+			tones.beep(300, 90)
+			ui.message(error)
+			return
+		# The success earcon is played by the result handlers once they have
+		# validated the answer, so an empty or unparseable reply never gets
+		# the success tone followed by an error message.
+		try:
+			onSuccess(result)
+		except Exception:
+			log.error("PiPiQ: failed to handle result", exc_info=True)
+			ui.message(_("An unexpected error occurred. See the NVDA log for details."))
+
+	# The entry gesture lives here (not in the @script decorator) so that
+	# _exitLayer's clearGestureBindings + bindGestures(self.__gestures) restores it.
+	# NVDA+Shift+V collides with a built-in NVDA command, so the default is
+	# NVDA+Shift+0 (number row zero); reassignable in Input Gestures.
+	__gestures = {
+		"kb:NVDA+shift+0": "visionLayer",
+	}
+
+	__layerGestures = {
+		"kb:q": "findQRScreen",
+		"kb:w": "findQRWindow",
+		"kb:o": "describeNavigator",
+		"kb:s": "describeScreen",
+		"kb:c": "describeClipboard",
+		"kb:g": "listWebImages",
+		"kb:p": "checkCapture",
+		"kb:t": "screenshotObject",
+		"kb:shift+t": "screenshotWindow",
+		"kb:control+t": "screenshotScreen",
+		"kb:r": "repeatLast",
+		"kb:b": "showLast",
+		"kb:h": "layerHelp",
+		"kb:f1": "layerHelp",
+		"kb:escape": "cancel",
+	}

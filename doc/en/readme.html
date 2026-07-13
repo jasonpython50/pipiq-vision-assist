@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PiPiQ Vision Assist 1.2.0 — User Guide</title>
+<style>
+body { font-family: sans-serif; max-width: 46em; margin: 1em auto; padding: 0 1em; line-height: 1.5; }
+table { border-collapse: collapse; margin: 1em 0; }
+th, td { border: 1px solid #767676; padding: 0.4em 0.6em; text-align: left; }
+caption { font-weight: bold; text-align: left; margin-bottom: 0.3em; }
+kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; padding: 0 0.25em; }
+</style>
+</head>
+<body>
+<main>
+<h1>PiPiQ Vision Assist</h1>
+
+<p>Vision assistance for blind users, powered by OpenCode Go vision AI models. Version 1.2.0. Author: Emmanuel Asamoah.</p>
+
+<p>The addon gives you four abilities:</p>
+<ol>
+<li><strong>QR code locator</strong>: finds a QR code on your screen (WhatsApp Web, websites, anywhere) and tells you exactly where to point your phone camera, in plain words such as "top right of the screen, 78 percent from the left edge". It can also park the mouse pointer on the code so you can feel where it is with mouse tracking.</li>
+<li><strong>Image describer</strong>: describes any image with AI: the object under the NVDA navigator, the whole screen, an image on the clipboard, or any image you pick from a list of all images on the current web page.</li>
+<li><strong>Screenshot taker</strong>: photographs the navigator object, the current window, or the whole screen at full resolution, saves the picture as a PNG file in your Pictures folder, and copies it to the clipboard so you can paste it straight into a chat or email.</li>
+<li><strong>Capture check</strong>: before you photograph or describe something, it tells you whether the object is fully on screen and whether another window is covering it.</li>
+</ol>
+
+<h2>Getting started</h2>
+<ol>
+<li>Install the addon and restart NVDA when prompted.</li>
+<li>Open the NVDA menu, then Preferences, then Settings, then the <strong>PiPiQ Vision Assist</strong> category.</li>
+<li>Paste your OpenCode API key into the "OpenCode API key" field and press OK. You can get a key by subscribing to OpenCode Go at opencode.ai.</li>
+</ol>
+<p>Taking screenshots works without an API key. The QR locator and the image describer need the key, because they send the image to the AI service.</p>
+
+<h2>Privacy</h2>
+<ul>
+<li>For QR detection and image descriptions, screenshots and clipboard images are sent to the OpenCode API for analysis. Do not run those commands while confidential content is on screen if that concerns you.</li>
+<li>Screenshots taken with the T commands stay on your computer; nothing is uploaded.</li>
+<li>The API key is stored in NVDA's configuration file in plain text, like most NVDA addon keys.</li>
+</ul>
+
+<h2>Commands</h2>
+<p>Everything starts with one gesture: <kbd>NVDA+Shift+0</kbd> (the zero on the number row). You can change it in the Input Gestures dialog, category "PiPiQ Vision Assist". After pressing it, press one key:</p>
+
+<table>
+<caption>Vision assist layer commands</caption>
+<tr><th scope="col">Key</th><th scope="col">Action</th></tr>
+<tr><th scope="row"><kbd>Q</kbd></th><td>Find a QR code on the whole screen</td></tr>
+<tr><th scope="row"><kbd>W</kbd></th><td>Find a QR code in the current window only</td></tr>
+<tr><th scope="row"><kbd>O</kbd></th><td>Describe the image at the navigator object with AI</td></tr>
+<tr><th scope="row"><kbd>S</kbd></th><td>Describe the whole screen with AI</td></tr>
+<tr><th scope="row"><kbd>C</kbd></th><td>Describe the image on the clipboard with AI (works with copied images and copied image files)</td></tr>
+<tr><th scope="row"><kbd>G</kbd></th><td>List all images on the current web page and choose one to describe with AI</td></tr>
+<tr><th scope="row"><kbd>P</kbd></th><td>Check what a screenshot or description would capture: the object's size, whether it is fully on screen, and whether another window covers it</td></tr>
+<tr><th scope="row"><kbd>T</kbd></th><td>Take a screenshot of the navigator object: save it to Pictures and copy it to the clipboard</td></tr>
+<tr><th scope="row"><kbd>Shift+T</kbd></th><td>Take a screenshot of the current window</td></tr>
+<tr><th scope="row"><kbd>Control+T</kbd></th><td>Take a screenshot of the whole screen</td></tr>
+<tr><th scope="row"><kbd>R</kbd></th><td>Repeat the last result</td></tr>
+<tr><th scope="row"><kbd>B</kbd></th><td>Open the last result in a browseable window, so you can arrow through it line by line; Escape closes it</td></tr>
+<tr><th scope="row"><kbd>H</kbd> or <kbd>F1</kbd></th><td>Speak this command list</td></tr>
+<tr><th scope="row"><kbd>Escape</kbd></th><td>Cancel a running request, or close the layer</td></tr>
+</table>
+
+<p>Every command can also be bound to its own direct gesture in the Input Gestures dialog.</p>
+
+<p>While a request runs you hear a soft beep every second (this can be turned off in settings). A high beep means success, a low beep means failure, and the result or error is spoken. Press the entry gesture and then the same command again to cancel and restart if it takes too long.</p>
+
+<h2>Describing an image on a web page</h2>
+<ol>
+<li>Move focus to the web page in your browser.</li>
+<li>Press <kbd>NVDA+Shift+0</kbd>, then <kbd>G</kbd>.</li>
+<li>A list of every image on the page opens, using each image's alternative text as its label. Images with no alternative text are listed as "Unlabeled image", and describing exactly those is often the point.</li>
+<li>Arrow to the image you want and press Enter. The addon scrolls the image into view, photographs it, and reads you the AI description.</li>
+</ol>
+<p>Tip: the picture must be visible on screen to be photographed, so this works best with the browser window maximized. If the addon reports that the image could not be brought into view, scroll to it manually and press <kbd>NVDA+Shift+0</kbd> then <kbd>O</kbd> on it instead.</p>
+
+<h2>Taking screenshots</h2>
+<p>Press <kbd>NVDA+Shift+0</kbd>, then <kbd>T</kbd> for the navigator object, <kbd>Shift+T</kbd> for the current window, or <kbd>Control+T</kbd> for the whole screen. The addon announces the file name and the picture's size in pixels. The picture is:</p>
+<ul>
+<li>saved as a PNG file in the <strong>PiPiQ Screenshots</strong> folder inside your Pictures folder, named with the date and time, for example pipiq-2026-07-13-14-30-05.png, and</li>
+<li>copied to the clipboard, so you can paste it directly into WhatsApp, an email, or a document with <kbd>Control+V</kbd>.</li>
+</ul>
+<p>Before shooting, you can press <kbd>P</kbd> to hear whether the object is fully on screen and whether another window would appear in the picture. Screenshots are refused while NVDA's screen curtain is active, because they would be completely black.</p>
+
+<h2>Scanning a WhatsApp Web QR code, step by step</h2>
+<ol>
+<li>Open web.whatsapp.com and maximize the browser window (<kbd>Windows+Up arrow</kbd>).</li>
+<li>Press <kbd>NVDA+Shift+0</kbd>, then <kbd>W</kbd>.</li>
+<li>Wait for the high beep. You will hear something like: "QR code found in the middle right of the window, centered 75 percent from the left edge and 50 percent from the top. It spans about 20 percent of the width. The mouse pointer is now on the QR code."</li>
+<li>On your phone, open WhatsApp, then Settings, then Linked devices, then Link a device, and point the camera at the reported part of your computer screen. Hold the phone 20 to 40 centimeters away, roughly parallel to the screen. Raising the screen brightness helps.</li>
+<li>If it does not catch, press <kbd>NVDA+Shift+0</kbd> then <kbd>W</kbd> again; the position may shift when the site refreshes the code.</li>
+</ol>
+
+<h2>Settings</h2>
+<p>All settings live under NVDA menu, Preferences, Settings, PiPiQ Vision Assist:</p>
+<ul>
+<li><strong>OpenCode API key</strong>: your key, starting with sk-.</li>
+<li><strong>API base URL</strong>: default https://opencode.ai/zen/go/v1. Any OpenAI-compatible server also works.</li>
+<li><strong>Model for QR code detection</strong>: default qwen3.7-plus (tested: accurate boxes, no false positives).</li>
+<li><strong>Model for image descriptions</strong>: default kimi-k2.5 (tested: fast, high quality descriptions).</li>
+<li><strong>Refresh model list from server</strong>: downloads the current model list with your key; vision-capable models are marked.</li>
+<li><strong>Show only vision-capable models</strong>: hides text-only models that cannot analyze images.</li>
+<li><strong>What to do with images</strong>: Automatic (default: pictures get described, text-heavy screenshots get their text read out exactly as written), Always describe, or Always extract the text exactly.</li>
+<li><strong>Image description detail</strong>: brief, detailed, or your own custom prompt.</li>
+<li><strong>Request timeout</strong>: default 90 seconds. QR detection on busy screens can take 20 to 60 seconds depending on the model.</li>
+<li><strong>Maximum image size</strong>: images are downscaled to this many pixels on the longest edge before uploading to the AI. Smaller is faster, larger preserves fine detail. Saved screenshots are always full resolution.</li>
+<li><strong>Move the mouse pointer to a found QR code</strong>: on by default.</li>
+<li><strong>Presenting results</strong>: speak only, speak and open a window for long results (default), or always open the window.</li>
+<li><strong>Progress beeps</strong> and <strong>response language</strong>: self explanatory.</li>
+</ul>
+
+<h2>Troubleshooting</h2>
+<ul>
+<li><strong>"The API rejected your key"</strong>: re-paste the key in settings and make sure your OpenCode Go subscription is active.</li>
+<li><strong>"No QR code was found"</strong> but you expect one: the code may be scrolled out of view or behind another window. Bring it on screen, then try <kbd>Q</kbd> (whole screen) instead of <kbd>W</kbd>.</li>
+<li><strong>"The captured image is completely black"</strong>: NVDA's screen curtain or a privacy filter is active; turn it off and try again.</li>
+<li><strong>Descriptions come in English</strong>: check "Ask for descriptions in your NVDA language" in settings.</li>
+<li><strong>An image on a web page cannot be chosen</strong>: some decorative images are hidden from screen readers and do not appear in the list; there is nothing meaningful in them to describe.</li>
+<li>Detailed errors are written to the NVDA log, which you can open with <kbd>NVDA+F1</kbd>.</li>
+</ul>
+
+<h2>Support and source code</h2>
+<p>Source code, issue reporting, and new releases: <a href="https://github.com/jasonpython50/pipiq-vision-assist">PiPiQ Vision Assist on GitHub</a>.</p>
+</main>
+</body>
+</html>
