@@ -5,6 +5,7 @@ Vision assistance for blind users, powered by OpenCode Go vision AI models:
 1. **QR code locator**: finds a QR code on your screen (WhatsApp Web, websites, anywhere) and tells you exactly where to point your phone camera, in plain words like "top right of the screen, 78 percent from the left edge". It can also park the mouse pointer on the code so you can feel where it is with mouse tracking.
 2. **Image describer**: describes any image: the object you are reviewing with the NVDA navigator, the whole screen, an image you copied to the clipboard (including image files copied in File Explorer), or any image chosen from a list of all images on the current web page.
 3. **Screenshot taker**: photographs the navigator object, the current window, or the whole screen at full resolution, saves the picture as a PNG in your Pictures folder, and copies it to the clipboard for pasting into chats and emails. Works entirely offline, no API key needed.
+4. **Form check**: when a Next or Submit button on a web form is dimmed and the page gives no hint why, press the entry gesture and then F to hear exactly what the form still needs: which required fields are empty, which checkboxes are unchecked, and what the page marks as invalid. Works entirely offline, no API key needed.
 
 ## Installation
 
@@ -28,6 +29,7 @@ Everything starts with one gesture: **NVDA+Shift+0** (the zero on the number row
 | S | Describe the whole screen |
 | C | Describe the image on the clipboard |
 | G | List all images on the current web page and choose one to describe |
+| F | Check the form on the current web page: reports dimmed buttons and which required fields are still empty, unchecked, or marked invalid |
 | P | Check what a screenshot would capture before taking it: reports the object's size, whether it is fully on screen, and whether another window is covering it |
 | T | Take a screenshot of the navigator object: save it to Pictures\PiPiQ Screenshots and copy it to the clipboard |
 | Shift+T | Take a screenshot of the current window |
@@ -48,6 +50,12 @@ While a request runs you hear a soft beep every second (can be turned off). A hi
 3. Arrow to the image you want and press Enter. The addon scrolls it into view, photographs it, and reads you the AI description.
 
 The picture must be visible on screen to be photographed, so a maximized browser window works best.
+
+### Checking why a form button is dimmed
+
+1. With the browse mode cursor somewhere inside the form (anywhere on the page also works), press NVDA+Shift+0, then F.
+2. The addon walks every field of the form and reports, for example: "The Proceed button is dimmed and cannot be pressed yet. After checking 9 fields in the current form, 2 likely reasons were found. 1: Phone number, edit box, is required but still empty. 2: I agree to the terms of service, checkbox, is required but not checked."
+3. It covers dimmed buttons, empty required fields, unchecked required checkboxes and radio groups, and fields marked invalid, including any error text the page attaches to the field. If everything looks complete, it says so and suggests describing the screen with S so the AI can look for purely visual causes such as CAPTCHAs.
 
 ### Scanning a WhatsApp Web QR code, step by step
 

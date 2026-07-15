@@ -11,16 +11,18 @@ import wx
 import addonHandler
 import api
 import config
+import controlTypes
 import globalPluginHandler
 import gui
 import languageHandler
+import textInfos
 import tones
 import ui
 import winUser
 from logHandler import log
 from scriptHandler import script
 
-from . import apiClient, qrLogic, screenGrab
+from . import apiClient, formLogic, qrLogic, screenGrab
 from .knownModels import RECOMMENDED_DESCRIPTION_MODEL, RECOMMENDED_QR_MODEL
 from .settingsPanel import PipiqSettingsPanel
 
@@ -108,7 +110,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help for the layer entry command.
-		description=_("Opens the Vision assist layer. Then press Q to find a QR code on the screen, W in the current window, O to describe the navigator object, S the screen, C the clipboard image, G to choose an image on the web page to describe, P to check what a screenshot would capture, T to take a screenshot, R to repeat the last result, B to open it in a window, Escape to cancel."),
+		description=_("Opens the Vision assist layer. Then press Q to find a QR code on the screen, W in the current window, O to describe the navigator object, S the screen, C the clipboard image, G to choose an image on the web page to describe, F to check why a form's button is dimmed, P to check what a screenshot would capture, T to take a screenshot, R to repeat the last result, B to open it in a window, Escape to cancel."),
 	)
 	def script_visionLayer(self, gesture):
 		if self._layerActive:
@@ -140,7 +142,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		ui.message(
 			# Translators: full help for the command layer, spoken on H. Does not
 			# name the entry gesture, since the user may have reassigned it.
-			_("Vision assist commands: Q, find QR code on the whole screen. W, find QR code in the current window. O, describe the navigator object. S, describe the whole screen. C, describe the image on the clipboard. G, choose an image on the web page to describe. P, check what a screenshot would capture. T, take a screenshot of the navigator object; Shift plus T, of the current window; Control plus T, of the whole screen. R, repeat the last result. B, show the last result in a browseable window. Escape, cancel. Press the Vision assist gesture again first, then one of these letters."),
+			_("Vision assist commands: Q, find QR code on the whole screen. W, find QR code in the current window. O, describe the navigator object. S, describe the whole screen. C, describe the image on the clipboard. G, choose an image on the web page to describe. F, check the form on the web page: reports dimmed buttons and which required fields are still empty or invalid. P, check what a screenshot would capture. T, take a screenshot of the navigator object; Shift plus T, of the current window; Control plus T, of the whole screen. R, repeat the last result. B, show the last result in a browseable window. Escape, cancel. Press the Vision assist gesture again first, then one of these letters."),
 		)
 
 	@script(description=_("Cancels the running Vision assist request."))
@@ -480,6 +482,203 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._startDescribeTask(rect, _("Image description: {name}").format(name=label))
 
 	# ------------------------------------------------------------------
+	# Form check
+
+	@script(
+		# Translators: input help for the form check command.
+		description=_("Checks the form on the current web page and reports why its submit button may be dimmed: which required fields are still empty, which checkboxes are unchecked, and what the page marks as invalid."),
+	)
+	def script_checkForm(self, gesture):
+		self._exitLayer()
+		try:
+			ti = api.getFocusObject().treeInterceptor
+		except Exception:
+			ti = None
+		if not ti or not getattr(ti, "isReady", False) or not hasattr(ti, "_iterNodesByType"):
+			# Translators: spoken when the form check command is used outside a web page.
+			ui.message(_("This command works on web pages and other browse mode documents. Move focus to the page with the form and try again."))
+			return
+		try:
+			items = list(ti._iterNodesByType("formField"))
+		except NotImplementedError:
+			items = []
+		except Exception:
+			log.error("PiPiQ: iterating form fields failed", exc_info=True)
+			items = []
+		if not items:
+			# Translators: spoken when the form check finds nothing to check.
+			ui.message(_("No form fields were found on this page."))
+			return
+		scopeInfo, scopeLabel = self._formScope(ti)
+		records = []
+		for item in items:
+			if scopeInfo is not None and not self._itemWithin(item, scopeInfo):
+				continue
+			obj = self._itemObject(item)
+			if obj is not None:
+				records.append(self._fieldRecord(obj))
+		if not records:
+			# The form under the caret yielded nothing usable; check the whole page.
+			# Translators: used in the form check report when the whole page was checked.
+			scopeLabel = _("this page")
+			records = [
+				self._fieldRecord(obj)
+				for obj in (self._itemObject(item) for item in items)
+				if obj is not None
+			]
+		disabledButtons, issues = formLogic.analyzeFields(records)
+		spoken, display = formLogic.buildFormReport(disabledButtons, issues, len(records), scopeLabel)
+		# No earcon: this is an instant local check, not a finished AI request.
+		# Translators: title of the window showing the last form check report.
+		self._deliverResult(_("Form check"), spoken, displayText=display, playEarcon=False)
+
+	def _formScope(self, ti):
+		"""Range of the form containing the caret, or (None, label) to check the whole page."""
+		try:
+			caretInfo = ti.makeTextInfo(textInfos.POSITION_CARET)
+			obj = caretInfo.NVDAObjectAtStart
+			root = ti.rootNVDAObject
+			for _step in range(50):
+				if obj is None or obj == root:
+					break
+				if obj.role == controlTypes.Role.FORM:
+					info = ti.makeTextInfo(obj)
+					name = (obj.name or "").strip()
+					if name:
+						# Translators: names the checked form in the form check report; {name} is the form's label.
+						return info, _("the {name} form").format(name=name)
+					# Translators: used in the form check report for a form without a label.
+					return info, _("the current form")
+				obj = obj.parent
+		except Exception:
+			pass
+		return None, _("this page")
+
+	@staticmethod
+	def _itemObject(item):
+		try:
+			obj = getattr(item, "obj", None)
+			if obj is not None:
+				return obj
+			return item.textInfo.NVDAObjectAtStart
+		except Exception:
+			return None
+
+	@staticmethod
+	def _itemWithin(item, scopeInfo):
+		try:
+			info = item.textInfo
+			return (
+				info.compareEndPoints(scopeInfo, "startToStart") >= 0
+				and info.compareEndPoints(scopeInfo, "endToEnd") <= 0
+			)
+		except Exception:
+			# When the range cannot be compared, keep the field rather than lose it.
+			return True
+
+	_ROLE_KINDS = None
+
+	@classmethod
+	def _roleKind(cls, role):
+		if cls._ROLE_KINDS is None:
+			Role = controlTypes.Role
+			kinds = {
+				Role.EDITABLETEXT: "edit",
+				Role.PASSWORDEDIT: "edit",
+				Role.SPINBUTTON: "edit",
+				Role.COMBOBOX: "combo",
+				Role.LIST: "list",
+				Role.CHECKBOX: "checkbox",
+				Role.RADIOBUTTON: "radio",
+				Role.BUTTON: "button",
+				Role.TOGGLEBUTTON: "button",
+				Role.SLIDER: "slider",
+			}
+			# Roles that may not exist on the oldest supported NVDA.
+			for roleName, kind in (
+				("SWITCH", "checkbox"),
+				("LISTBOX", "list"),
+				("MENUBUTTON", "button"),
+				("DATEEDITOR", "edit"),
+				("TIMEEDITOR", "edit"),
+			):
+				r = getattr(Role, roleName, None)
+				if r is not None:
+					kinds[r] = kind
+			cls._ROLE_KINDS = kinds
+		return cls._ROLE_KINDS.get(role, "field")
+
+	def _fieldRecord(self, obj):
+		State = controlTypes.State
+		try:
+			states = obj.states
+		except Exception:
+			states = set()
+		try:
+			kind = self._roleKind(obj.role)
+		except Exception:
+			kind = "field"
+		try:
+			name = (obj.name or "").strip()
+		except Exception:
+			name = ""
+		try:
+			placeholder = ((getattr(obj, "IA2Attributes", None) or {}).get("placeholder") or "").strip()
+		except Exception:
+			placeholder = ""
+		value = ""
+		if kind not in ("checkbox", "radio", "button"):
+			try:
+				value = (obj.value or "").strip()
+			except Exception:
+				value = ""
+			if not value and kind == "edit":
+				# Multi-line and rich edits often expose their text, not a value.
+				try:
+					value = (obj.makeTextInfo(textInfos.POSITION_ALL).text or "").strip()
+				except Exception:
+					value = ""
+			if value and placeholder and value == placeholder:
+				# A visible placeholder is not typed content.
+				value = ""
+		try:
+			description = (obj.description or "").strip()
+		except Exception:
+			description = ""
+		error = ""
+		try:
+			error = (getattr(obj, "errorMessage", None) or "").strip()
+		except Exception:
+			pass
+		group = self._radioGroupName(obj) if kind == "radio" else ""
+		return {
+			"kind": kind,
+			"name": name or placeholder,
+			"value": value,
+			"required": State.REQUIRED in states,
+			"invalid": State.INVALID_ENTRY in states,
+			"checked": State.CHECKED in states or State.HALFCHECKED in states or State.PRESSED in states,
+			"disabled": State.UNAVAILABLE in states,
+			"description": description,
+			"error": error,
+			"group": group,
+		}
+
+	@staticmethod
+	def _radioGroupName(obj):
+		try:
+			parent = obj.parent
+			for _step in range(6):
+				if parent is None:
+					break
+				if parent.role == controlTypes.Role.GROUPING:
+					return (parent.name or "").strip()
+				parent = parent.parent
+		except Exception:
+			pass
+		return ""
+
+	# ------------------------------------------------------------------
 	# Taking screenshots
 
 	@script(
@@ -773,6 +972,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"kb:s": "describeScreen",
 		"kb:c": "describeClipboard",
 		"kb:g": "listWebImages",
+		"kb:f": "checkForm",
 		"kb:p": "checkCapture",
 		"kb:t": "screenshotObject",
 		"kb:shift+t": "screenshotWindow",
