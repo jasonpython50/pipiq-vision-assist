@@ -9,7 +9,7 @@ Vision assistance for blind users, powered by OpenCode Go vision AI models:
 
 ## Installation
 
-The addon requires NVDA 2023.1 or later and is tested up to NVDA 2026.1.
+The addon requires NVDA 2026.1 or later.
 
 1. Press Enter on the `.nvda-addon` file (get the latest from the [Releases page on GitHub](https://github.com/jasonpython50/pipiq-vision-assist/releases)) and confirm the installation, then restart NVDA.
 2. Open NVDA menu, then Preferences, then Settings, then **PiPiQ Vision Assist**.
