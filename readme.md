@@ -107,6 +107,11 @@ This works the same whether you use the WhatsApp desktop app or WhatsApp Web in 
 
 ## Version history
 
+### Version 1.3.1
+
+- The minimum supported NVDA version is now 2026.1.
+- A version history section was added to the user guide, and the WhatsApp QR walkthrough now covers the WhatsApp desktop app as well as WhatsApp Web.
+
 ### Version 1.3.0
 
 - New form check command, F in the Vision assist layer: when a form's Submit or Next button is dimmed, it reports which required fields are still empty, which checkboxes are unchecked, which radio button groups have nothing selected, and what the page marks as invalid, including any error text the page attaches. Works offline, no API key needed.
