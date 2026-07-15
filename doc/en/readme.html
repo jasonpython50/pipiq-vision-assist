@@ -20,7 +20,7 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 
 <p>The addon gives you five abilities:</p>
 <ol>
-<li><strong>QR code locator</strong>: finds a QR code on your screen (WhatsApp Web, websites, anywhere) and tells you exactly where to point your phone camera, in plain words such as "top right of the screen, 78 percent from the left edge". It can also park the mouse pointer on the code so you can feel where it is with mouse tracking.</li>
+<li><strong>QR code locator</strong>: finds a QR code on your screen (the WhatsApp desktop app, WhatsApp Web, websites, anywhere) and tells you exactly where to point your phone camera, in plain words such as "top right of the screen, 78 percent from the left edge". It can also park the mouse pointer on the code so you can feel where it is with mouse tracking.</li>
 <li><strong>Image describer</strong>: describes any image with AI: the object under the NVDA navigator, the whole screen, an image on the clipboard, or any image you pick from a list of all images on the current web page.</li>
 <li><strong>Screenshot taker</strong>: photographs the navigator object, the current window, or the whole screen at full resolution, saves the picture as a PNG file in your Pictures folder, and copies it to the clipboard so you can paste it straight into a chat or email.</li>
 <li><strong>Capture check</strong>: before you photograph or describe something, it tells you whether the object is fully on screen and whether another window is covering it.</li>
@@ -28,6 +28,7 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 </ol>
 
 <h2>Getting started</h2>
+<p>The addon requires NVDA 2023.1 or later and is tested up to NVDA 2026.1.</p>
 <ol>
 <li>Install the addon and restart NVDA when prompted.</li>
 <li>Open the NVDA menu, then Preferences, then Settings, then the <strong>PiPiQ Vision Assist</strong> category.</li>
@@ -96,11 +97,12 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 </ul>
 <p>Before shooting, you can press <kbd>P</kbd> to hear whether the object is fully on screen and whether another window would appear in the picture. Screenshots are refused while NVDA's screen curtain is active, because they would be completely black.</p>
 
-<h2>Scanning a WhatsApp Web QR code, step by step</h2>
+<h2>Scanning a WhatsApp QR code, step by step</h2>
+<p>This works the same whether you use the WhatsApp desktop app or WhatsApp Web in a browser; the QR locator reads the code from the screen, so the kind of window does not matter.</p>
 <ol>
-<li>Open web.whatsapp.com and maximize the browser window (<kbd>Windows+Up arrow</kbd>).</li>
+<li>Open the WhatsApp desktop app, or web.whatsapp.com in your browser, and maximize the window (<kbd>Windows+Up arrow</kbd>).</li>
 <li>Press <kbd>NVDA+Shift+0</kbd>, then <kbd>W</kbd>.</li>
-<li>Wait for the high beep. You will hear something like: "QR code found in the middle right of the window, centered 75 percent from the left edge and 50 percent from the top. It spans about 20 percent of the width. The mouse pointer is now on the QR code."</li>
+<li>Wait for the high beep. You will hear something like: "QR code found in the middle right of the window, centered 75 percent from the left edge and 50 percent from the top. It spans about 20 percent of the width. The mouse pointer is now on the QR code. Point your phone camera at the middle right of the window."</li>
 <li>On your phone, open WhatsApp, then Settings, then Linked devices, then Link a device, and point the camera at the reported part of your computer screen. Hold the phone 20 to 40 centimeters away, roughly parallel to the screen. Raising the screen brightness helps.</li>
 <li>If it does not catch, press <kbd>NVDA+Shift+0</kbd> then <kbd>W</kbd> again; the position may shift when the site refreshes the code.</li>
 </ol>
@@ -132,6 +134,32 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 <li><strong>An image on a web page cannot be chosen</strong>: some decorative images are hidden from screen readers and do not appear in the list; there is nothing meaningful in them to describe.</li>
 <li><strong>The form check says everything looks complete but the button stays dimmed</strong>: the page is not exposing the real requirement to screen readers. Press <kbd>NVDA+Shift+0</kbd> then <kbd>S</kbd> to have the AI describe the screen; visual error messages and CAPTCHAs show up there.</li>
 <li>Detailed errors are written to the NVDA log, which you can open with <kbd>NVDA+F1</kbd>.</li>
+</ul>
+
+<h2>Version history</h2>
+
+<h3>Version 1.3.0</h3>
+<ul>
+<li>New form check command, <kbd>F</kbd> in the Vision assist layer: when a form's Submit or Next button is dimmed, it reports which required fields are still empty, which checkboxes are unchecked, which radio button groups have nothing selected, and what the page marks as invalid, including any error text the page attaches. Works offline, no API key needed.</li>
+</ul>
+
+<h3>Version 1.2.0</h3>
+<ul>
+<li>New screenshot commands: <kbd>T</kbd> for the navigator object, <kbd>Shift+T</kbd> for the current window, <kbd>Control+T</kbd> for the whole screen. Screenshots are saved at full resolution in the PiPiQ Screenshots folder inside Pictures and copied to the clipboard for pasting into chats and emails.</li>
+<li>New web image chooser, <kbd>G</kbd>: lists every image on the current web page so you can pick one to describe with AI.</li>
+<li>This user guide was added; it opens from the Help button in the NVDA Add-on Store.</li>
+</ul>
+
+<h3>Version 1.1.0</h3>
+<ul>
+<li>New "What to do with images" setting: Automatic, Always describe, or Always extract the text exactly as written.</li>
+<li>New capture check command, <kbd>P</kbd>: reports the object's size, how much of it is on screen, and whether another window is covering it, before you photograph or describe it.</li>
+<li>Reasoning models that leak their thinking into replies are handled: only the final answer is spoken.</li>
+</ul>
+
+<h3>Version 1.0.0</h3>
+<ul>
+<li>First release: the QR code locator (<kbd>Q</kbd> and <kbd>W</kbd>), the AI image describer for the navigator object, the whole screen, and the clipboard (<kbd>O</kbd>, <kbd>S</kbd>, <kbd>C</kbd>), the Vision assist command layer on <kbd>NVDA+Shift+0</kbd>, and the settings panel.</li>
 </ul>
 
 <h2>Support and source code</h2>

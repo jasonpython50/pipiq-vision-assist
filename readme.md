@@ -2,12 +2,14 @@
 
 Vision assistance for blind users, powered by OpenCode Go vision AI models:
 
-1. **QR code locator**: finds a QR code on your screen (WhatsApp Web, websites, anywhere) and tells you exactly where to point your phone camera, in plain words like "top right of the screen, 78 percent from the left edge". It can also park the mouse pointer on the code so you can feel where it is with mouse tracking.
+1. **QR code locator**: finds a QR code on your screen (the WhatsApp desktop app, WhatsApp Web, websites, anywhere) and tells you exactly where to point your phone camera, in plain words like "top right of the screen, 78 percent from the left edge". It can also park the mouse pointer on the code so you can feel where it is with mouse tracking.
 2. **Image describer**: describes any image: the object you are reviewing with the NVDA navigator, the whole screen, an image you copied to the clipboard (including image files copied in File Explorer), or any image chosen from a list of all images on the current web page.
 3. **Screenshot taker**: photographs the navigator object, the current window, or the whole screen at full resolution, saves the picture as a PNG in your Pictures folder, and copies it to the clipboard for pasting into chats and emails. Works entirely offline, no API key needed.
 4. **Form check**: when a Next or Submit button on a web form is dimmed and the page gives no hint why, press the entry gesture and then F to hear exactly what the form still needs: which required fields are empty, which checkboxes are unchecked, and what the page marks as invalid. Works entirely offline, no API key needed.
 
 ## Installation
+
+The addon requires NVDA 2023.1 or later and is tested up to NVDA 2026.1.
 
 1. Press Enter on the `.nvda-addon` file (get the latest from the [Releases page on GitHub](https://github.com/jasonpython50/pipiq-vision-assist/releases)) and confirm the installation, then restart NVDA.
 2. Open NVDA menu, then Preferences, then Settings, then **PiPiQ Vision Assist**.
@@ -57,9 +59,11 @@ The picture must be visible on screen to be photographed, so a maximized browser
 2. The addon walks every field of the form and reports, for example: "The Proceed button is dimmed and cannot be pressed yet. After checking 9 fields in the current form, 2 likely reasons were found. 1: Phone number, edit box, is required but still empty. 2: I agree to the terms of service, checkbox, is required but not checked."
 3. It covers dimmed buttons, empty required fields, unchecked required checkboxes and radio groups, and fields marked invalid, including any error text the page attaches to the field. If everything looks complete, it says so and suggests describing the screen with S so the AI can look for purely visual causes such as CAPTCHAs.
 
-### Scanning a WhatsApp Web QR code, step by step
+### Scanning a WhatsApp QR code, step by step
 
-1. Open web.whatsapp.com and maximize the browser window (Windows+Up arrow).
+This works the same whether you use the WhatsApp desktop app or WhatsApp Web in a browser; the QR locator reads the code from the screen, so the kind of window does not matter.
+
+1. Open the WhatsApp desktop app, or web.whatsapp.com in your browser, and maximize the window (Windows+Up arrow).
 2. Press NVDA+Shift+0, then W.
 3. Wait for the high beep. You will hear something like: "QR code found in the middle right of the window, centered 75 percent from the left edge and 50 percent from the top. It spans about 20 percent of the width. The mouse pointer is now on the QR code. Point your phone camera at the middle right of the window."
 4. On your phone, open WhatsApp, then Settings, then Linked devices, then Link a device, and point the camera at the reported part of your computer screen. Hold the phone 20 to 40 centimeters away, roughly parallel to the screen. Raising the screen brightness helps.
@@ -100,3 +104,25 @@ The picture must be visible on screen to be photographed, so a maximized browser
 - **"No QR code was found"** but you expect one: the code may be scrolled out of view or behind another window. Bring it on screen, then try Q (whole screen) instead of W.
 - **Descriptions come in English**: check "Ask for descriptions in your NVDA language" in settings.
 - Detailed errors are written to the NVDA log (NVDA+F1).
+
+## Version history
+
+### Version 1.3.0
+
+- New form check command, F in the Vision assist layer: when a form's Submit or Next button is dimmed, it reports which required fields are still empty, which checkboxes are unchecked, which radio button groups have nothing selected, and what the page marks as invalid, including any error text the page attaches. Works offline, no API key needed.
+
+### Version 1.2.0
+
+- New screenshot commands: T for the navigator object, Shift+T for the current window, Control+T for the whole screen. Screenshots are saved at full resolution in the PiPiQ Screenshots folder inside Pictures and copied to the clipboard for pasting into chats and emails.
+- New web image chooser, G: lists every image on the current web page so you can pick one to describe with AI.
+- The user guide was added; it opens from the Help button in the NVDA Add-on Store.
+
+### Version 1.1.0
+
+- New "What to do with images" setting: Automatic, Always describe, or Always extract the text exactly as written.
+- New capture check command, P: reports the object's size, how much of it is on screen, and whether another window is covering it, before you photograph or describe it.
+- Reasoning models that leak their thinking into replies are handled: only the final answer is spoken.
+
+### Version 1.0.0
+
+- First release: the QR code locator (Q and W), the AI image describer for the navigator object, the whole screen, and the clipboard (O, S, C), the Vision assist command layer on NVDA+Shift+0, and the settings panel.
