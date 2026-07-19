@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>User Guide - PiPiQ Vision Assist 1.4.0</title>
+<title>User Guide - PiPiQ Vision Assist 1.5.0</title>
 <style>
 body { font-family: sans-serif; max-width: 46em; margin: 1em auto; padding: 0 1em; line-height: 1.5; }
 table { border-collapse: collapse; margin: 1em 0; }
@@ -16,7 +16,7 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 <main>
 <h1>PiPiQ Vision Assist</h1>
 
-<p>Vision assistance for blind users, powered by OpenCode Go vision AI models. Version 1.4.0. Author: Emmanuel Asamoah.</p>
+<p>Vision assistance for blind users, powered by OpenCode Go vision AI models. Version 1.5.0. Author: Emmanuel Asamoah.</p>
 
 <p>The addon gives you six abilities:</p>
 <ol>
@@ -25,7 +25,7 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 <li><strong>Screenshot taker</strong>: photographs the navigator object, the current window, or the whole screen at full resolution, saves the picture as a PNG file in your Pictures folder, and copies it to the clipboard so you can paste it straight into a chat or email.</li>
 <li><strong>Capture check</strong>: before you photograph or describe something, it tells you whether the object is fully on screen and whether another window is covering it.</li>
 <li><strong>Form check</strong>: when a Next or Submit button on a web form is dimmed and the page gives no hint why, press the Vision assist gesture and then <kbd>F</kbd> to hear exactly what the form still needs: which required fields are empty, which checkboxes are unchecked, and what the page marks as invalid.</li>
-<li><strong>Text reader</strong>: reads the exact text of the navigator object, the current window, or the whole screen using the OCR engine built into Windows. Instant, works entirely offline, no API key needed. Useful for inaccessible dialogs, images of text, and applications that expose nothing to screen readers.</li>
+<li><strong>Text reader</strong>: reads the exact text of the navigator object, the current window, the whole screen, or a file selected in File Explorer, using the OCR engine built into Windows. It reads PDF documents and image files, including multi-page TIFF. Works entirely offline, no API key needed. Useful for inaccessible dialogs, scanned documents, images of text, and applications that expose nothing to screen readers.</li>
 </ol>
 
 <h2>Getting started</h2>
@@ -40,7 +40,7 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 <h2>Privacy</h2>
 <ul>
 <li>For QR detection and image descriptions, screenshots and clipboard images are sent to the OpenCode API for analysis. Do not run those commands while confidential content is on screen if that concerns you.</li>
-<li>Screenshots taken with the T commands stay on your computer, and text read with the X commands is recognized on your computer by Windows; neither is uploaded anywhere.</li>
+<li>Screenshots taken with the T commands stay on your computer, and text read with the X and D commands is recognized on your computer by Windows; nothing is uploaded.</li>
 <li>The API key is stored in NVDA's configuration file in plain text, like most NVDA addon keys.</li>
 </ul>
 
@@ -64,6 +64,7 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 <tr><th scope="row"><kbd>X</kbd></th><td>Read the text of the navigator object with Windows OCR</td></tr>
 <tr><th scope="row"><kbd>Shift+X</kbd></th><td>Read the text of the current window with Windows OCR</td></tr>
 <tr><th scope="row"><kbd>Control+X</kbd></th><td>Read the text of the whole screen with Windows OCR</td></tr>
+<tr><th scope="row"><kbd>D</kbd></th><td>Read the text of the PDF or image file selected in File Explorer; opens a file chooser when no file is selected</td></tr>
 <tr><th scope="row"><kbd>R</kbd></th><td>Repeat the last result</td></tr>
 <tr><th scope="row"><kbd>B</kbd></th><td>Open the last result in a browseable window, so you can arrow through it line by line; Escape closes it</td></tr>
 <tr><th scope="row"><kbd>H</kbd> or <kbd>F1</kbd></th><td>Speak this command list</td></tr>
@@ -108,6 +109,14 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 </ol>
 <p>This uses the OCR engine built into Windows, so it is fast, free, and nothing leaves your computer. The recognition language is the one chosen in NVDA menu, Preferences, Settings, Windows OCR. For stylized text, handwriting, or photos of text, the AI usually reads better: set "What to do with images" to "Always extract the text exactly" in settings, then use <kbd>O</kbd> or <kbd>S</kbd>.</p>
 
+<h2>Reading a PDF or image file</h2>
+<ol>
+<li>In File Explorer or on the desktop, move to the file you want to read.</li>
+<li>Press <kbd>NVDA+Shift+0</kbd>, then <kbd>D</kbd>. If you are not in File Explorer or on the desktop, the command opens a file chooser instead.</li>
+<li>Progress beeps play while the pages are recognized, and page numbers are announced for long documents. The text opens in a browseable window, with a heading line before each page.</li>
+</ol>
+<p>Supported files: PDF documents, and PNG, JPEG, BMP, GIF, and TIFF images, including multi-page TIFF. Very long PDFs are read up to page 50, and the report says so when a document was cut short. Scanned PDFs work because every page is recognized from its picture, not from the file's text layer. PDF pages are converted for recognition with the pdftopng tool from the Xpdf project by Glyph and Cog, which is bundled with the addon.</p>
+
 <h2>Scanning a WhatsApp QR code, step by step</h2>
 <p>This works the same whether you use the WhatsApp desktop app or WhatsApp Web in a browser; the QR locator reads the code from the screen, so the kind of window does not matter.</p>
 <ol>
@@ -148,6 +157,11 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 </ul>
 
 <h2>Version history</h2>
+
+<h3>Version 1.5.0</h3>
+<ul>
+<li>New file reading command, <kbd>D</kbd>: reads the text of the file selected in File Explorer with Windows OCR, and opens a file chooser when no file is selected. It reads PDF documents (up to 50 pages) and PNG, JPEG, BMP, GIF, and TIFF images, including multi-page TIFF. Works offline, no API key needed. PDF pages are converted with the bundled pdftopng tool from the Xpdf project.</li>
+</ul>
 
 <h3>Version 1.4.0</h3>
 <ul>

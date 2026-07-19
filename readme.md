@@ -6,7 +6,7 @@ Vision assistance for blind users, powered by OpenCode Go vision AI models:
 2. **Image describer**: describes any image: the object you are reviewing with the NVDA navigator, the whole screen, an image you copied to the clipboard (including image files copied in File Explorer), or any image chosen from a list of all images on the current web page.
 3. **Screenshot taker**: photographs the navigator object, the current window, or the whole screen at full resolution, saves the picture as a PNG in your Pictures folder, and copies it to the clipboard for pasting into chats and emails. Works entirely offline, no API key needed.
 4. **Form check**: when a Next or Submit button on a web form is dimmed and the page gives no hint why, press the entry gesture and then F to hear exactly what the form still needs: which required fields are empty, which checkboxes are unchecked, and what the page marks as invalid. Works entirely offline, no API key needed.
-5. **Text reader**: reads the exact text of the navigator object, the current window, or the whole screen using the OCR engine built into Windows. Instant, works entirely offline, no API key needed. Useful for inaccessible dialogs, images of text, and applications that expose nothing to screen readers.
+5. **Text reader**: reads the exact text of the navigator object, the current window, the whole screen, or a file selected in File Explorer, using the OCR engine built into Windows. It reads PDF documents and image files, including multi-page TIFF. Works entirely offline, no API key needed. Useful for inaccessible dialogs, scanned documents, images of text, and applications that expose nothing to screen readers.
 
 ## Installation
 
@@ -17,7 +17,7 @@ The addon requires NVDA 2026.1 or later.
 3. Paste your OpenCode API key into the "OpenCode API key" field and press OK. You can get a key by subscribing to OpenCode Go at opencode.ai.
 
 **Privacy notes:**
-- For QR detection and image descriptions, screenshots and clipboard images are sent to the OpenCode API for analysis. Do not run those commands while confidential content is on screen if that concerns you. Screenshots taken with the T commands stay on your computer, and text read with the X commands is recognized on your computer by Windows; neither is uploaded anywhere.
+- For QR detection and image descriptions, screenshots and clipboard images are sent to the OpenCode API for analysis. Do not run those commands while confidential content is on screen if that concerns you. Screenshots taken with the T commands stay on your computer, and text read with the X and D commands is recognized on your computer by Windows; nothing is uploaded.
 - The API key is stored in NVDA's configuration file in plain text, like most NVDA addon keys.
 
 ## Usage
@@ -40,6 +40,7 @@ Everything starts with one gesture: **NVDA+Shift+0** (the zero on the number row
 | X | Read the text of the navigator object with Windows OCR |
 | Shift+X | Read the text of the current window with Windows OCR |
 | Control+X | Read the text of the whole screen with Windows OCR |
+| D | Read the text of the PDF or image file selected in File Explorer; opens a file chooser when no file is selected |
 | R | Repeat the last result |
 | B | Open the last result in a browseable window (arrow through it line by line, Escape closes) |
 | H or F1 | Speak this command list |
@@ -69,6 +70,14 @@ The picture must be visible on screen to be photographed, so a maximized browser
 2. The recognized text is spoken exactly as written; long results open in a browseable window you can arrow through, and R and B re-read the last result as usual.
 
 This uses the OCR engine built into Windows, so it is fast, free, and nothing leaves your computer. The recognition language is the one chosen in NVDA menu, Preferences, Settings, Windows OCR. For stylized text, handwriting, or photos of text, the AI usually reads better: set "What to do with images" to "Always extract the text exactly" in settings, then use O or S.
+
+### Reading a PDF or image file
+
+1. In File Explorer or on the desktop, move to the file you want to read.
+2. Press NVDA+Shift+0, then D. If you are not in File Explorer or on the desktop, the command opens a file chooser instead.
+3. Progress beeps play while the pages are recognized, and page numbers are announced for long documents. The text opens in a browseable window, with a heading line before each page.
+
+Supported files: PDF documents, and PNG, JPEG, BMP, GIF, and TIFF images, including multi-page TIFF. Very long PDFs are read up to page 50, and the report says so when a document was cut short. Scanned PDFs work because every page is recognized from its picture, not from the file's text layer. PDF pages are converted for recognition with the pdftopng tool from the Xpdf project by Glyph and Cog, which is bundled with the addon.
 
 ### Scanning a WhatsApp QR code, step by step
 
@@ -117,6 +126,10 @@ This works the same whether you use the WhatsApp desktop app or WhatsApp Web in 
 - Detailed errors are written to the NVDA log (NVDA+F1).
 
 ## Version history
+
+### Version 1.5.0
+
+- New file reading command, D: reads the text of the file selected in File Explorer with Windows OCR, and opens a file chooser when no file is selected. It reads PDF documents (up to 50 pages) and PNG, JPEG, BMP, GIF, and TIFF images, including multi-page TIFF. Works offline, no API key needed. PDF pages are converted with the bundled pdftopng tool from the Xpdf project.
 
 ### Version 1.4.0
 

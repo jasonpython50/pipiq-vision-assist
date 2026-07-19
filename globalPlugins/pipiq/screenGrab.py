@@ -70,6 +70,7 @@ CF_HDROP = 15
 CF_DIBV5 = 17
 GA_ROOT = 2
 GMEM_MOVEABLE = 0x0002
+CSIDL_DESKTOPDIRECTORY = 0x0010
 CSIDL_MYPICTURES = 39
 SM_XVIRTUALSCREEN = 76
 SM_YVIRTUALSCREEN = 77
@@ -255,6 +256,14 @@ def screenshotDirectory():
 	else:
 		pictures = os.path.join(os.path.expanduser("~"), "Pictures")
 	return os.path.join(pictures, "PiPiQ Screenshots")
+
+
+def desktopDirectory():
+	"""The user's Desktop folder, correct even when OneDrive has moved it."""
+	buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
+	if shell32.SHGetFolderPathW(None, CSIDL_DESKTOPDIRECTORY, None, 0, buf) == 0 and buf.value:
+		return buf.value
+	return os.path.join(os.path.expanduser("~"), "Desktop")
 
 
 def saveScreenshot(rgb, width, height, directory=None):

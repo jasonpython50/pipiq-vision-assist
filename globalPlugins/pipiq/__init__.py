@@ -13,6 +13,7 @@ import api
 import config
 import controlTypes
 import globalPluginHandler
+import globalVars
 import gui
 import languageHandler
 import textInfos
@@ -110,7 +111,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help for the layer entry command.
-		description=_("Opens the Vision assist layer. Then press Q to find a QR code on the screen, W in the current window, O to describe the navigator object, S the screen, C the clipboard image, G to choose an image on the web page to describe, F to check why a form's button is dimmed, P to check what a screenshot would capture, T to take a screenshot, X to read the text with Windows OCR, R to repeat the last result, B to open it in a window, Escape to cancel."),
+		description=_("Opens the Vision assist layer. Then press Q to find a QR code on the screen, W in the current window, O to describe the navigator object, S the screen, C the clipboard image, G to choose an image on the web page to describe, F to check why a form's button is dimmed, P to check what a screenshot would capture, T to take a screenshot, X to read the text with Windows OCR, D to read a PDF or image file, R to repeat the last result, B to open it in a window, Escape to cancel."),
 	)
 	def script_visionLayer(self, gesture):
 		if self._layerActive:
@@ -142,7 +143,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		ui.message(
 			# Translators: full help for the command layer, spoken on H. Does not
 			# name the entry gesture, since the user may have reassigned it.
-			_("Vision assist commands: Q, find QR code on the whole screen. W, find QR code in the current window. O, describe the navigator object. S, describe the whole screen. C, describe the image on the clipboard. G, choose an image on the web page to describe. F, check the form on the web page: reports dimmed buttons and which required fields are still empty or invalid. P, check what a screenshot would capture. T, take a screenshot of the navigator object; Shift plus T, of the current window; Control plus T, of the whole screen. X, read the text of the navigator object with Windows OCR, offline; Shift plus X, of the current window; Control plus X, of the whole screen. R, repeat the last result. B, show the last result in a browseable window. Escape, cancel. Press the Vision assist gesture again first, then one of these letters."),
+			_("Vision assist commands: Q, find QR code on the whole screen. W, find QR code in the current window. O, describe the navigator object. S, describe the whole screen. C, describe the image on the clipboard. G, choose an image on the web page to describe. F, check the form on the web page: reports dimmed buttons and which required fields are still empty or invalid. P, check what a screenshot would capture. T, take a screenshot of the navigator object; Shift plus T, of the current window; Control plus T, of the whole screen. X, read the text of the navigator object with Windows OCR, offline; Shift plus X, of the current window; Control plus X, of the whole screen. D, read the text of a PDF or image file selected in File Explorer, offline. R, repeat the last result. B, show the last result in a browseable window. Escape, cancel. Press the Vision assist gesture again first, then one of these letters."),
 		)
 
 	@script(description=_("Cancels the running Vision assist request."))
@@ -812,14 +813,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if _screenCurtainActive():
 			ui.message(_("Screen curtain is active, so the screen appears black and cannot be analyzed. Turn off screen curtain and try again."))
 			return
-		try:
-			import winVersion
-			if not winVersion.isUwpOcrAvailable():
-				# Translators: spoken when the Windows OCR engine is missing from the system.
-				ui.message(_("Windows OCR is not available on this computer."))
-				return
-		except ImportError:
-			pass  # let the recognition attempt decide
+		if not self._ocrEngineAvailable():
+			return
 		try:
 			from contentRecog import RecogImageInfo, uwpOcr
 			import screenBitmap
@@ -885,6 +880,275 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		# Translators: spoken while Windows OCR is running.
 		self._runAsync(work, onSuccess, _("Recognizing text..."))
+
+	def _ocrEngineAvailable(self):
+		try:
+			import winVersion
+			if not winVersion.isUwpOcrAvailable():
+				# Translators: spoken when the Windows OCR engine is missing from the system.
+				ui.message(_("Windows OCR is not available on this computer."))
+				return False
+		except ImportError:
+			pass  # let the recognition attempt decide
+		return True
+
+	# ------------------------------------------------------------------
+	# Reading files with Windows OCR
+
+	_FILE_OCR_IMAGE_EXTENSIONS = frozenset(("png", "jpg", "jpeg", "jfif", "bmp", "gif", "tif", "tiff"))
+	_FILE_OCR_PAGE_LIMIT = 50
+	_OCR_MAX_IMAGE_DIM = 2500  # Windows OCR rejects images beyond about 2600 pixels
+
+	@script(
+		# Translators: input help for reading a file with Windows OCR.
+		description=_("Reads the text of the file selected in File Explorer using Windows OCR: PDF documents and image files. Opens a file chooser when no file is selected. Works offline, no API key needed."),
+	)
+	def script_ocrFile(self, gesture):
+		self._exitLayer()
+		if globalVars.appArgs.secure:
+			# Translators: spoken when the file reading command is used on a secure screen.
+			ui.message(_("This command is not available on secure screens."))
+			return
+		if self._inFlight:
+			self._cancelInFlight()
+			return
+		if not self._ocrEngineAvailable():
+			return
+		path = self._selectedExplorerFile()
+		if path:
+			self._startFileOcrTask(path)
+		else:
+			# The dialog must not open from inside the gesture handler.
+			wx.CallAfter(self._browseForOcrFile)
+
+	def _selectedExplorerFile(self):
+		"""Full path of the file focused in File Explorer or on the desktop, or None."""
+		try:
+			obj = api.getForegroundObject()
+			if not (obj and obj.appModule and obj.appModule.appName == "explorer"):
+				return None
+		except Exception:
+			return None
+		try:
+			from comtypes.client import CreateObject
+			shell = CreateObject("shell.application")
+			for window in shell.Windows():
+				if window.hwnd == obj.windowHandle:
+					path = str(window.Document.FocusedItem.path)
+					return path if os.path.isfile(path) else None
+		except Exception:
+			log.error("PiPiQ: reading the Explorer selection failed", exc_info=True)
+			return None
+		# No Explorer window matched the foreground window: focus is on the
+		# desktop itself, where items are named after their files.
+		try:
+			name = api.getDesktopObject().objectWithFocus().name
+		except Exception:
+			return None
+		if not name:
+			return None
+		path = os.path.join(screenGrab.desktopDirectory(), name)
+		return path if os.path.isfile(path) else None
+
+	def _browseForOcrFile(self):
+		imagePatterns = ";".join("*.%s" % ext for ext in sorted(self._FILE_OCR_IMAGE_EXTENSIONS))
+		patterns = "*.pdf;" + imagePatterns
+		wildcard = "%s (%s)|%s|%s (*.*)|*.*" % (
+			# Translators: file type filter name in the file chooser.
+			_("PDF and image files"), patterns, patterns,
+			# Translators: file type filter name in the file chooser.
+			_("All files"),
+		)
+		gui.mainFrame.prePopup()
+		try:
+			dlg = wx.FileDialog(
+				gui.mainFrame,
+				# Translators: title of the dialog asking which file to read.
+				_("Choose the file to read"),
+				wildcard=wildcard,
+				style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+			)
+			result = dlg.ShowModal()
+			path = dlg.GetPath()
+			dlg.Destroy()
+		finally:
+			gui.mainFrame.postPopup()
+		if result == wx.ID_OK and path:
+			self._startFileOcrTask(path)
+
+	def _startFileOcrTask(self, path):
+		ext = os.path.splitext(path)[1].lower().lstrip(".")
+		if ext != "pdf" and ext not in self._FILE_OCR_IMAGE_EXTENSIONS:
+			# Translators: spoken when the selected file is not a recognizable type.
+			ui.message(_("This file type cannot be read. Supported types: PDF, PNG, JPEG, BMP, GIF, and TIFF."))
+			return
+		fileName = os.path.basename(path)
+		# Translators: title of the window showing text recognized from a file; {name} is the file name.
+		title = _("Recognized text from {name}").format(name=fileName)
+		pageLimit = self._FILE_OCR_PAGE_LIMIT
+
+		def work():
+			# _runAsync bumped the generation just before starting this thread;
+			# a later value means the user cancelled or started something else.
+			generation = self._generation
+			if ext == "pdf":
+				texts, totalPages = self._ocrPdfPages(path, pageLimit, generation)
+			else:
+				texts, totalPages = self._ocrImageFilePages(path, pageLimit, generation)
+			if texts is None:
+				return None  # cancelled; _finish discards stale results anyway
+			# Translators: header above each page in a multi-page recognition result; {number} is the page number.
+			return ocrLogic.pagesToText(texts, _("Page {number}")), len(texts), totalPages
+
+		def onSuccess(result):
+			if result is None:
+				return
+			text, pagesRead, totalPages = result
+			if not text.strip():
+				# Recognition succeeded with a negative outcome, so the success earcon applies.
+				tones.beep(880, 60)
+				# Translators: spoken when a file contains no recognizable text; {name} is the file name.
+				ui.message(_("No text was recognized in {name}.").format(name=fileName))
+				return
+			if totalPages > pagesRead:
+				# Translators: put before a partly read long document; {read} and {total} are page counts.
+				text = _("Note: only the first {read} of {total} pages were read.").format(read=pagesRead, total=totalPages) + "\n" + text
+			self._deliverResult(title, text)
+
+		# Translators: spoken while a file is being recognized; {name} is the file name.
+		self._runAsync(work, onSuccess, _("Reading {name}...").format(name=fileName))
+
+	def _ocrPdfPages(self, path, pageLimit, generation):
+		"""Convert a PDF with the bundled Xpdf tools and OCR each page. Worker thread."""
+		import shutil
+		import subprocess
+		import tempfile
+		si = subprocess.STARTUPINFO()
+		si.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # no console window flash
+		toolsDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+		try:
+			proc = subprocess.run(
+				[os.path.join(toolsDir, "pdfinfo.exe"), path],
+				capture_output=True, text=True, encoding="utf-8", errors="replace",
+				startupinfo=si, timeout=60,
+			)
+			totalPages = ocrLogic.parsePdfPageCount(proc.stdout) if proc.returncode == 0 else None
+		except Exception:
+			log.error("PiPiQ: pdfinfo failed", exc_info=True)
+			totalPages = None
+		if not totalPages:
+			# Translators: spoken when a PDF cannot be opened for recognition.
+			raise apiClient.ApiError(_("The PDF file could not be opened. It may be corrupted or password protected."))
+		tempDir = tempfile.mkdtemp(prefix="pipiq-pdf-")
+		try:
+			proc = subprocess.run(
+				[
+					os.path.join(toolsDir, "pdftopng.exe"),
+					"-f", "1", "-l", str(min(totalPages, pageLimit)),
+					path, os.path.join(tempDir, "page"),
+				],
+				capture_output=True, startupinfo=si, timeout=600,
+			)
+			pngFiles = sorted(
+				os.path.join(tempDir, f) for f in os.listdir(tempDir) if f.lower().endswith(".png")
+			)
+			if not pngFiles:
+				log.error("PiPiQ: pdftopng produced no pages (exit code %s)" % proc.returncode)
+				# Translators: spoken when the PDF to image conversion fails.
+				raise apiClient.ApiError(_("The PDF file could not be converted for recognition."))
+			texts = []
+			for pngFile in pngFiles:
+				if self._generation != generation:
+					return None, totalPages
+				noLog = wx.LogNull()  # keep wx image loading errors out of dialogs
+				try:
+					image = wx.Image(pngFile)
+				finally:
+					del noLog
+				texts.append(self._recognizeWxImage(image))
+				self._announcePageProgress(len(texts), len(pngFiles), generation)
+			return texts, totalPages
+		finally:
+			try:
+				shutil.rmtree(tempDir)
+			except Exception:
+				pass
+
+	def _ocrImageFilePages(self, path, pageLimit, generation):
+		"""OCR an image file, page by page for multi-page TIFF and GIF. Worker thread."""
+		noLog = wx.LogNull()  # keep wx image loading errors out of dialogs
+		try:
+			try:
+				pageCount = wx.Image.GetImageCount(path)
+			except Exception:
+				pageCount = 0
+			if pageCount < 1:
+				# Translators: spoken when an image file cannot be decoded.
+				raise apiClient.ApiError(_("The image file could not be opened. It may be corrupted or in an unsupported variant."))
+			texts = []
+			for index in range(min(pageCount, pageLimit)):
+				if self._generation != generation:
+					return None, pageCount
+				image = wx.Image(path, index=index) if pageCount > 1 else wx.Image(path)
+				if not image.IsOk():
+					raise apiClient.ApiError(_("The image file could not be opened. It may be corrupted or in an unsupported variant."))
+				texts.append(self._recognizeWxImage(image))
+				self._announcePageProgress(len(texts), min(pageCount, pageLimit), generation)
+			return texts, pageCount
+		finally:
+			del noLog
+
+	def _announcePageProgress(self, done, total, generation):
+		if total > 1 and done < total and done % 10 == 0:
+			def announce():
+				if self._generation == generation:
+					# Translators: progress announcement while reading a multi-page file.
+					ui.message(_("Page {done} of {total}").format(done=done, total=total))
+			wx.CallAfter(announce)
+
+	def _recognizeWxImage(self, image):
+		"""OCR one wx.Image and return its text. Runs on the worker thread."""
+		from contentRecog import RecogImageInfo, uwpOcr
+		import winGDI
+		width, height = image.GetWidth(), image.GetHeight()
+		if width < 1 or height < 1:
+			return ""
+		longest = max(width, height)
+		if longest > self._OCR_MAX_IMAGE_DIM:
+			scale = float(self._OCR_MAX_IMAGE_DIM) / longest
+			width = max(1, int(width * scale))
+			height = max(1, int(height * scale))
+			image = image.Scale(width, height, wx.IMAGE_QUALITY_HIGH)
+		try:
+			recognizer = uwpOcr.UwpOcr()
+		except Exception:
+			log.error("PiPiQ: could not create the Windows OCR recognizer", exc_info=True)
+			raise apiClient.ApiError(_("Windows OCR could not be started. Check that an OCR language is installed in Windows settings, under Language."))
+		try:
+			imgInfo = RecogImageInfo.createFromRecognizer(0, 0, width, height, recognizer)
+		except ValueError:
+			return ""  # page too small to hold readable text
+		if (imgInfo.recogWidth, imgInfo.recogHeight) != (width, height):
+			# The engine wants small pages upscaled before recognition.
+			image = image.Scale(imgInfo.recogWidth, imgInfo.recogHeight, wx.IMAGE_QUALITY_HIGH)
+		bitmap = wx.Bitmap(image, 24)
+		pixels = (winGDI.RGBQUAD * imgInfo.recogWidth * imgInfo.recogHeight)()
+		bitmap.CopyToBuffer(pixels, format=wx.BitmapBufferFormat_ARGB32)
+		done = threading.Event()
+		holder = {}
+
+		def onResult(result):
+			holder["result"] = result
+			done.set()
+
+		recognizer.recognize(pixels, imgInfo, onResult)
+		if not done.wait(30):
+			raise apiClient.ApiError(_("Text recognition timed out. Please try again."))
+		result = holder.get("result")
+		if isinstance(result, Exception):
+			log.error("PiPiQ: Windows OCR failed: %s" % result)
+			raise apiClient.ApiError(_("Text recognition failed. See the NVDA log for details."))
+		return ocrLogic.linesWordsToText(getattr(result, "data", None))
 
 	# ------------------------------------------------------------------
 	# Capture preview
@@ -1100,6 +1364,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"kb:x": "ocrObject",
 		"kb:shift+x": "ocrWindow",
 		"kb:control+x": "ocrScreen",
+		"kb:d": "ocrFile",
 		"kb:r": "repeatLast",
 		"kb:b": "showLast",
 		"kb:h": "layerHelp",
