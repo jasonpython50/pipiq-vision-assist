@@ -22,7 +22,7 @@ import winUser
 from logHandler import log
 from scriptHandler import script
 
-from . import apiClient, formLogic, qrLogic, screenGrab
+from . import apiClient, formLogic, ocrLogic, qrLogic, screenGrab
 from .knownModels import RECOMMENDED_DESCRIPTION_MODEL, RECOMMENDED_QR_MODEL
 from .settingsPanel import PipiqSettingsPanel
 
@@ -110,7 +110,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help for the layer entry command.
-		description=_("Opens the Vision assist layer. Then press Q to find a QR code on the screen, W in the current window, O to describe the navigator object, S the screen, C the clipboard image, G to choose an image on the web page to describe, F to check why a form's button is dimmed, P to check what a screenshot would capture, T to take a screenshot, R to repeat the last result, B to open it in a window, Escape to cancel."),
+		description=_("Opens the Vision assist layer. Then press Q to find a QR code on the screen, W in the current window, O to describe the navigator object, S the screen, C the clipboard image, G to choose an image on the web page to describe, F to check why a form's button is dimmed, P to check what a screenshot would capture, T to take a screenshot, X to read the text with Windows OCR, R to repeat the last result, B to open it in a window, Escape to cancel."),
 	)
 	def script_visionLayer(self, gesture):
 		if self._layerActive:
@@ -142,7 +142,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		ui.message(
 			# Translators: full help for the command layer, spoken on H. Does not
 			# name the entry gesture, since the user may have reassigned it.
-			_("Vision assist commands: Q, find QR code on the whole screen. W, find QR code in the current window. O, describe the navigator object. S, describe the whole screen. C, describe the image on the clipboard. G, choose an image on the web page to describe. F, check the form on the web page: reports dimmed buttons and which required fields are still empty or invalid. P, check what a screenshot would capture. T, take a screenshot of the navigator object; Shift plus T, of the current window; Control plus T, of the whole screen. R, repeat the last result. B, show the last result in a browseable window. Escape, cancel. Press the Vision assist gesture again first, then one of these letters."),
+			_("Vision assist commands: Q, find QR code on the whole screen. W, find QR code in the current window. O, describe the navigator object. S, describe the whole screen. C, describe the image on the clipboard. G, choose an image on the web page to describe. F, check the form on the web page: reports dimmed buttons and which required fields are still empty or invalid. P, check what a screenshot would capture. T, take a screenshot of the navigator object; Shift plus T, of the current window; Control plus T, of the whole screen. X, read the text of the navigator object with Windows OCR, offline; Shift plus X, of the current window; Control plus X, of the whole screen. R, repeat the last result. B, show the last result in a browseable window. Escape, cancel. Press the Vision assist gesture again first, then one of these letters."),
 		)
 
 	@script(description=_("Cancels the running Vision assist request."))
@@ -767,6 +767,126 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._runAsync(work, onSuccess, _("Taking a screenshot..."))
 
 	# ------------------------------------------------------------------
+	# Windows OCR text recognition
+
+	@script(
+		# Translators: input help for reading the navigator object's text with Windows OCR.
+		description=_("Reads the text of the navigator object using Windows OCR. Works offline, no API key needed."),
+	)
+	def script_ocrObject(self, gesture):
+		self._exitLayer()
+		rect = self._navigatorRect()
+		if not rect:
+			ui.message(_("The current navigator object has no visible area to capture. Try describing the whole screen with S instead."))
+			return
+		# Translators: names what was read in OCR results and messages.
+		self._startOcrTask(rect, _("the navigator object"))
+
+	@script(
+		# Translators: input help for reading the current window's text with Windows OCR.
+		description=_("Reads the text of the current foreground window using Windows OCR. Works offline, no API key needed."),
+	)
+	def script_ocrWindow(self, gesture):
+		self._exitLayer()
+		rect = self._foregroundRect()
+		if not rect:
+			ui.message(_("Could not determine the current window's position."))
+			return
+		# Translators: names what was read in OCR results and messages.
+		self._startOcrTask(rect, _("the current window"))
+
+	@script(
+		# Translators: input help for reading the whole screen's text with Windows OCR.
+		description=_("Reads the text of the whole screen using Windows OCR. Works offline, no API key needed."),
+	)
+	def script_ocrScreen(self, gesture):
+		self._exitLayer()
+		rect = screenGrab.getVirtualScreenRect()
+		# Translators: names what was read in OCR results and messages.
+		self._startOcrTask(rect, _("the whole screen"))
+
+	def _startOcrTask(self, rect, subjectLabel):
+		if self._inFlight:
+			self._cancelInFlight()
+			return
+		if _screenCurtainActive():
+			ui.message(_("Screen curtain is active, so the screen appears black and cannot be analyzed. Turn off screen curtain and try again."))
+			return
+		try:
+			import winVersion
+			if not winVersion.isUwpOcrAvailable():
+				# Translators: spoken when the Windows OCR engine is missing from the system.
+				ui.message(_("Windows OCR is not available on this computer."))
+				return
+		except ImportError:
+			pass  # let the recognition attempt decide
+		try:
+			from contentRecog import RecogImageInfo, uwpOcr
+			import screenBitmap
+		except Exception:
+			log.error("PiPiQ: Windows OCR modules unavailable", exc_info=True)
+			ui.message(_("Windows OCR is not available on this computer."))
+			return
+		try:
+			# Uses the recognition language from NVDA's Windows OCR settings.
+			recognizer = uwpOcr.UwpOcr()
+		except Exception:
+			log.error("PiPiQ: could not create the Windows OCR recognizer", exc_info=True)
+			# Translators: spoken when the Windows OCR engine exists but fails to start.
+			ui.message(_("Windows OCR could not be started. Check that an OCR language is installed in Windows settings, under Language."))
+			return
+		left, top, width, height = rect
+		try:
+			imgInfo = RecogImageInfo.createFromRecognizer(left, top, width, height, recognizer)
+		except ValueError:
+			# Translators: spoken when the area is below the OCR engine's minimum size.
+			ui.message(_("This area is too small for text recognition. Try the whole window with Shift plus X instead."))
+			return
+		try:
+			# Capture on the main thread, like the other capture commands;
+			# GDI capture is fast, recognition is what runs in the background.
+			sb = screenBitmap.ScreenBitmap(imgInfo.recogWidth, imgInfo.recogHeight)
+			pixels = sb.captureImage(left, top, width, height)
+		except Exception:
+			log.error("PiPiQ: OCR screen capture failed", exc_info=True)
+			ui.message(_("Could not capture the screen."))
+			return
+		# Translators: title of the window showing recognized text; {subject} is what was read.
+		title = _("Recognized text from {subject}").format(subject=subjectLabel)
+
+		def work():
+			done = threading.Event()
+			holder = {}
+
+			def onResult(result):
+				holder["result"] = result
+				done.set()
+
+			recognizer.recognize(pixels, imgInfo, onResult)
+			if not done.wait(30):
+				# Translators: spoken when Windows OCR takes more than 30 seconds.
+				raise apiClient.ApiError(_("Text recognition timed out. Please try again."))
+			result = holder.get("result")
+			if isinstance(result, Exception):
+				log.error("PiPiQ: Windows OCR failed: %s" % result)
+				# Translators: spoken when Windows OCR reports an error; details go to the NVDA log.
+				raise apiClient.ApiError(_("Text recognition failed. See the NVDA log for details."))
+			return ocrLogic.linesWordsToText(getattr(result, "data", None))
+
+		def onSuccess(text):
+			if not text:
+				# Recognition succeeded with a negative outcome, so the success earcon applies.
+				tones.beep(880, 60)
+				# Translators: spoken when OCR finds no text; {subject} is what was read.
+				ui.message(_("No text was recognized in {subject}. For stylized or photographed text, try the AI instead: O describes the navigator object and S the whole screen.").format(subject=subjectLabel))
+				return
+			# Exact recognized text: only trimmed, never reworded for speech.
+			self._deliverResult(title, text.strip())
+
+		# Translators: spoken while Windows OCR is running.
+		self._runAsync(work, onSuccess, _("Recognizing text..."))
+
+	# ------------------------------------------------------------------
 	# Capture preview
 
 	@script(
@@ -794,7 +914,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except Exception:
 			role = ""
 		# Translators: start of the capture check report; {name} and {role} identify the object.
-		parts.append(_("Pressing O or T would capture: {name}, {role}.").format(name=name or _("unnamed object"), role=role))
+		parts.append(_("Pressing O, T, or X would capture: {name}, {role}.").format(name=name or _("unnamed object"), role=role))
 		rect = screenGrab.intersectWithVirtualScreen(location.left, location.top, location.width, location.height)
 		if not rect:
 			# Translators: capture check result when the object is scrolled off screen.
@@ -977,6 +1097,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"kb:t": "screenshotObject",
 		"kb:shift+t": "screenshotWindow",
 		"kb:control+t": "screenshotScreen",
+		"kb:x": "ocrObject",
+		"kb:shift+x": "ocrWindow",
+		"kb:control+x": "ocrScreen",
 		"kb:r": "repeatLast",
 		"kb:b": "showLast",
 		"kb:h": "layerHelp",

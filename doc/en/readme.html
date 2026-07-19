@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PiPiQ Vision Assist 1.3.1 — User Guide</title>
+<title>User Guide - PiPiQ Vision Assist 1.4.0</title>
 <style>
 body { font-family: sans-serif; max-width: 46em; margin: 1em auto; padding: 0 1em; line-height: 1.5; }
 table { border-collapse: collapse; margin: 1em 0; }
@@ -16,15 +16,16 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 <main>
 <h1>PiPiQ Vision Assist</h1>
 
-<p>Vision assistance for blind users, powered by OpenCode Go vision AI models. Version 1.3.1. Author: Emmanuel Asamoah.</p>
+<p>Vision assistance for blind users, powered by OpenCode Go vision AI models. Version 1.4.0. Author: Emmanuel Asamoah.</p>
 
-<p>The addon gives you five abilities:</p>
+<p>The addon gives you six abilities:</p>
 <ol>
 <li><strong>QR code locator</strong>: finds a QR code on your screen (the WhatsApp desktop app, WhatsApp Web, websites, anywhere) and tells you exactly where to point your phone camera, in plain words such as "top right of the screen, 78 percent from the left edge". It can also park the mouse pointer on the code so you can feel where it is with mouse tracking.</li>
 <li><strong>Image describer</strong>: describes any image with AI: the object under the NVDA navigator, the whole screen, an image on the clipboard, or any image you pick from a list of all images on the current web page.</li>
 <li><strong>Screenshot taker</strong>: photographs the navigator object, the current window, or the whole screen at full resolution, saves the picture as a PNG file in your Pictures folder, and copies it to the clipboard so you can paste it straight into a chat or email.</li>
 <li><strong>Capture check</strong>: before you photograph or describe something, it tells you whether the object is fully on screen and whether another window is covering it.</li>
 <li><strong>Form check</strong>: when a Next or Submit button on a web form is dimmed and the page gives no hint why, press the Vision assist gesture and then <kbd>F</kbd> to hear exactly what the form still needs: which required fields are empty, which checkboxes are unchecked, and what the page marks as invalid.</li>
+<li><strong>Text reader</strong>: reads the exact text of the navigator object, the current window, or the whole screen using the OCR engine built into Windows. Instant, works entirely offline, no API key needed. Useful for inaccessible dialogs, images of text, and applications that expose nothing to screen readers.</li>
 </ol>
 
 <h2>Getting started</h2>
@@ -34,12 +35,12 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 <li>Open the NVDA menu, then Preferences, then Settings, then the <strong>PiPiQ Vision Assist</strong> category.</li>
 <li>Paste your OpenCode API key into the "OpenCode API key" field and press OK. You can get a key by subscribing to OpenCode Go at opencode.ai.</li>
 </ol>
-<p>Taking screenshots works without an API key. The QR locator and the image describer need the key, because they send the image to the AI service.</p>
+<p>Taking screenshots, the form check, and the Windows OCR text reader work without an API key. The QR locator and the image describer need the key, because they send the image to the AI service.</p>
 
 <h2>Privacy</h2>
 <ul>
 <li>For QR detection and image descriptions, screenshots and clipboard images are sent to the OpenCode API for analysis. Do not run those commands while confidential content is on screen if that concerns you.</li>
-<li>Screenshots taken with the T commands stay on your computer; nothing is uploaded.</li>
+<li>Screenshots taken with the T commands stay on your computer, and text read with the X commands is recognized on your computer by Windows; neither is uploaded anywhere.</li>
 <li>The API key is stored in NVDA's configuration file in plain text, like most NVDA addon keys.</li>
 </ul>
 
@@ -60,6 +61,9 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 <tr><th scope="row"><kbd>T</kbd></th><td>Take a screenshot of the navigator object: save it to Pictures and copy it to the clipboard</td></tr>
 <tr><th scope="row"><kbd>Shift+T</kbd></th><td>Take a screenshot of the current window</td></tr>
 <tr><th scope="row"><kbd>Control+T</kbd></th><td>Take a screenshot of the whole screen</td></tr>
+<tr><th scope="row"><kbd>X</kbd></th><td>Read the text of the navigator object with Windows OCR</td></tr>
+<tr><th scope="row"><kbd>Shift+X</kbd></th><td>Read the text of the current window with Windows OCR</td></tr>
+<tr><th scope="row"><kbd>Control+X</kbd></th><td>Read the text of the whole screen with Windows OCR</td></tr>
 <tr><th scope="row"><kbd>R</kbd></th><td>Repeat the last result</td></tr>
 <tr><th scope="row"><kbd>B</kbd></th><td>Open the last result in a browseable window, so you can arrow through it line by line; Escape closes it</td></tr>
 <tr><th scope="row"><kbd>H</kbd> or <kbd>F1</kbd></th><td>Speak this command list</td></tr>
@@ -96,6 +100,13 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 <li>copied to the clipboard, so you can paste it directly into WhatsApp, an email, or a document with <kbd>Control+V</kbd>.</li>
 </ul>
 <p>Before shooting, you can press <kbd>P</kbd> to hear whether the object is fully on screen and whether another window would appear in the picture. Screenshots are refused while NVDA's screen curtain is active, because they would be completely black.</p>
+
+<h2>Reading text with Windows OCR</h2>
+<ol>
+<li>Press <kbd>NVDA+Shift+0</kbd>, then <kbd>X</kbd> for the navigator object, <kbd>Shift+X</kbd> for the current window, or <kbd>Control+X</kbd> for the whole screen.</li>
+<li>The recognized text is spoken exactly as written; long results open in a browseable window you can arrow through, and <kbd>R</kbd> and <kbd>B</kbd> re-read the last result as usual.</li>
+</ol>
+<p>This uses the OCR engine built into Windows, so it is fast, free, and nothing leaves your computer. The recognition language is the one chosen in NVDA menu, Preferences, Settings, Windows OCR. For stylized text, handwriting, or photos of text, the AI usually reads better: set "What to do with images" to "Always extract the text exactly" in settings, then use <kbd>O</kbd> or <kbd>S</kbd>.</p>
 
 <h2>Scanning a WhatsApp QR code, step by step</h2>
 <p>This works the same whether you use the WhatsApp desktop app or WhatsApp Web in a browser; the QR locator reads the code from the screen, so the kind of window does not matter.</p>
@@ -137,6 +148,11 @@ kbd { font-family: monospace; border: 1px solid #767676; border-radius: 3px; pad
 </ul>
 
 <h2>Version history</h2>
+
+<h3>Version 1.4.0</h3>
+<ul>
+<li>New text reader commands using the OCR engine built into Windows: <kbd>X</kbd> reads the exact text of the navigator object, <kbd>Shift+X</kbd> reads the current window, and <kbd>Control+X</kbd> reads the whole screen. Instant, works offline, no API key needed. The recognition language follows NVDA's Windows OCR settings.</li>
+</ul>
 
 <h3>Version 1.3.1</h3>
 <ul>

@@ -6,6 +6,7 @@ Vision assistance for blind users, powered by OpenCode Go vision AI models:
 2. **Image describer**: describes any image: the object you are reviewing with the NVDA navigator, the whole screen, an image you copied to the clipboard (including image files copied in File Explorer), or any image chosen from a list of all images on the current web page.
 3. **Screenshot taker**: photographs the navigator object, the current window, or the whole screen at full resolution, saves the picture as a PNG in your Pictures folder, and copies it to the clipboard for pasting into chats and emails. Works entirely offline, no API key needed.
 4. **Form check**: when a Next or Submit button on a web form is dimmed and the page gives no hint why, press the entry gesture and then F to hear exactly what the form still needs: which required fields are empty, which checkboxes are unchecked, and what the page marks as invalid. Works entirely offline, no API key needed.
+5. **Text reader**: reads the exact text of the navigator object, the current window, or the whole screen using the OCR engine built into Windows. Instant, works entirely offline, no API key needed. Useful for inaccessible dialogs, images of text, and applications that expose nothing to screen readers.
 
 ## Installation
 
@@ -16,7 +17,7 @@ The addon requires NVDA 2026.1 or later.
 3. Paste your OpenCode API key into the "OpenCode API key" field and press OK. You can get a key by subscribing to OpenCode Go at opencode.ai.
 
 **Privacy notes:**
-- For QR detection and image descriptions, screenshots and clipboard images are sent to the OpenCode API for analysis. Do not run those commands while confidential content is on screen if that concerns you. Screenshots taken with the T commands stay on your computer.
+- For QR detection and image descriptions, screenshots and clipboard images are sent to the OpenCode API for analysis. Do not run those commands while confidential content is on screen if that concerns you. Screenshots taken with the T commands stay on your computer, and text read with the X commands is recognized on your computer by Windows; neither is uploaded anywhere.
 - The API key is stored in NVDA's configuration file in plain text, like most NVDA addon keys.
 
 ## Usage
@@ -36,6 +37,9 @@ Everything starts with one gesture: **NVDA+Shift+0** (the zero on the number row
 | T | Take a screenshot of the navigator object: save it to Pictures\PiPiQ Screenshots and copy it to the clipboard |
 | Shift+T | Take a screenshot of the current window |
 | Control+T | Take a screenshot of the whole screen |
+| X | Read the text of the navigator object with Windows OCR |
+| Shift+X | Read the text of the current window with Windows OCR |
+| Control+X | Read the text of the whole screen with Windows OCR |
 | R | Repeat the last result |
 | B | Open the last result in a browseable window (arrow through it line by line, Escape closes) |
 | H or F1 | Speak this command list |
@@ -58,6 +62,13 @@ The picture must be visible on screen to be photographed, so a maximized browser
 1. With the browse mode cursor somewhere inside the form (anywhere on the page also works), press NVDA+Shift+0, then F.
 2. The addon walks every field of the form and reports, for example: "The Proceed button is dimmed and cannot be pressed yet. After checking 9 fields in the current form, 2 likely reasons were found. 1: Phone number, edit box, is required but still empty. 2: I agree to the terms of service, checkbox, is required but not checked."
 3. It covers dimmed buttons, empty required fields, unchecked required checkboxes and radio groups, and fields marked invalid, including any error text the page attaches to the field. If everything looks complete, it says so and suggests describing the screen with S so the AI can look for purely visual causes such as CAPTCHAs.
+
+### Reading text with Windows OCR
+
+1. Press NVDA+Shift+0, then X for the navigator object, Shift+X for the current window, or Control+X for the whole screen.
+2. The recognized text is spoken exactly as written; long results open in a browseable window you can arrow through, and R and B re-read the last result as usual.
+
+This uses the OCR engine built into Windows, so it is fast, free, and nothing leaves your computer. The recognition language is the one chosen in NVDA menu, Preferences, Settings, Windows OCR. For stylized text, handwriting, or photos of text, the AI usually reads better: set "What to do with images" to "Always extract the text exactly" in settings, then use O or S.
 
 ### Scanning a WhatsApp QR code, step by step
 
@@ -106,6 +117,10 @@ This works the same whether you use the WhatsApp desktop app or WhatsApp Web in 
 - Detailed errors are written to the NVDA log (NVDA+F1).
 
 ## Version history
+
+### Version 1.4.0
+
+- New text reader commands using the OCR engine built into Windows: X reads the exact text of the navigator object, Shift+X reads the current window, and Control+X reads the whole screen. Instant, works offline, no API key needed. The recognition language follows NVDA's Windows OCR settings.
 
 ### Version 1.3.1
 
